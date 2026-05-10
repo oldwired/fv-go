@@ -76,6 +76,11 @@ func (g *Group) Insert(v View) {
 	g.InsertBefore(v, nil)
 }
 
+// InnerGroup returns the receiver. Group-embedding views (Window,
+// Dialog, Tabs, …) inherit this via method promotion and therefore
+// expose their embedded Group to walkers that want to recurse.
+func (g *Group) InnerGroup() *Group { return g }
+
 // InsertBefore inserts v immediately before target. If target is nil
 // (the common case), v lands at the end.
 func (g *Group) InsertBefore(v, target View) {
@@ -152,9 +157,17 @@ func (g *Group) refreshActive() {
 // Delete removes v. No-op if v isn't in this group. Also clears
 // v.Owner so any "am I still alive?" checks (animation tickers,
 // async callbacks) can detect that the view is detached and unhook.
+//
+// Before detaching we capture the view's screen rect and invalidate
+// the cellbuf for that region, so any cell that diff-equalled across
+// the removal boundary (typical for SIXEL canvases that emit only
+// blanks into the cellbuf) still re-emits and overwrites lingering
+// graphics in the terminal.
 func (g *Group) Delete(v View) {
 	for i, c := range g.Children {
 		if c == v {
+			sx, sy := c.BaseView().ScreenOrigin()
+			sw, sh := c.BaseView().Size.X, c.BaseView().Size.Y
 			g.Children = append(g.Children[:i], g.Children[i+1:]...)
 			if g.current == i {
 				g.current = -1
@@ -165,6 +178,7 @@ func (g *Group) Delete(v View) {
 			}
 			g.refreshActive()
 			c.BaseView().Owner = nil
+			InvalidateRect(sx, sy, sw, sh)
 			MarkDirty()
 			return
 		}

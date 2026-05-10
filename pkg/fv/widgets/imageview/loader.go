@@ -1,0 +1,106 @@
+package imageview
+
+import (
+	"fmt"
+	"image"
+	"os"
+	"path/filepath"
+	"strings"
+
+	// Register stdlib decoders. image.Decode dispatches by magic bytes
+	// once these have run their init() blocks.
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+
+	"github.com/oldwired/fv-go/pkg/fv/sixel"
+)
+
+func sixelCellSize() (w, h int) { return sixel.CellSize() }
+
+// LoadFile reads an image from path and returns the decoded image.
+// PNG, JPEG, and GIF are supported via stdlib decoders. Other formats
+// (BMP, TIFF, WebP) require additional decoder registrations and are
+// not supported here — the caller can do that themselves and pass the
+// decoded image to SetImage.
+//
+// The returned error wraps the underlying decoder error with the path
+// for debuggability.
+func LoadFile(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, format, err := image.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	_ = format // available if a caller ever wants to know
+	return img, nil
+}
+
+// IsLikelyImageFile is a cheap filename-suffix check; the demo's file
+// dialog uses it as a glob hint. Real format detection only happens
+// inside LoadFile via image.Decode.
+func IsLikelyImageFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif":
+		return true
+	}
+	return false
+}
+
+// PreferredCells returns the cell dimensions needed to display img at
+// native pixel resolution given the rendering mode. SIXEL: one image
+// pixel = 1/cellW × 1/cellH cells (cell sizes come from sixel.CellSize).
+// Half-block: one image-column = 1 cell, two image-rows = 1 cell. The
+// caller is expected to add window-frame padding and clamp to the
+// available desktop area — this helper just answers "what size of
+// view would be 1:1?".
+func PreferredCells(img image.Image, useSixel bool) (cols, rows int) {
+	b := img.Bounds()
+	iw, ih := b.Dx(), b.Dy()
+	if iw <= 0 || ih <= 0 {
+		return 1, 1
+	}
+	if useSixel {
+		cw, ch := sixelCellSize()
+		cols = (iw + cw - 1) / cw
+		rows = (ih + ch - 1) / ch
+	} else {
+		cols = iw
+		rows = (ih + 1) / 2
+	}
+	if cols < 1 {
+		cols = 1
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	return
+}
+
+// FitCells scales (cols, rows) down so it fits inside (maxCols, maxRows)
+// while preserving aspect ratio. Both axes are clamped to a minimum of
+// 1. If the input already fits, it's returned unchanged.
+func FitCells(cols, rows, maxCols, maxRows int) (int, int) {
+	if cols <= maxCols && rows <= maxRows {
+		return cols, rows
+	}
+	sx := float64(maxCols) / float64(cols)
+	sy := float64(maxRows) / float64(rows)
+	s := sx
+	if sy < s {
+		s = sy
+	}
+	cols = int(float64(cols) * s)
+	rows = int(float64(rows) * s)
+	if cols < 1 {
+		cols = 1
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	return cols, rows
+}

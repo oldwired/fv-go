@@ -30,6 +30,7 @@ type winBackend struct {
 	cursorOn bool
 	events   chan Event
 	stop     chan struct{}
+	reader   *reader
 }
 
 const (
@@ -88,7 +89,14 @@ func (b *winBackend) Init() error {
 
 	b.events = make(chan Event, 64)
 	b.stop = make(chan struct{})
+	b.reader = newReader(b.in)
 	go b.readLoop()
+
+	// Probe cell pixel size for the SIXEL pipeline. Windows Terminal
+	// (≥ v1.22) supports CSI 16t and SIXEL graphics; legacy ConHost
+	// doesn't reply and we fall back to defaults.
+	probeCellPixelSize(b.reader, b.out)
+
 	return nil
 }
 
@@ -132,6 +140,10 @@ func (b *winBackend) WriteRaw(s string) error {
 
 func (b *winBackend) Clear(attr uint16) { b.buf.Clear(attr) }
 
+func (b *winBackend) MarkClean(x, y int) { b.buf.markClean(x, y) }
+
+func (b *winBackend) Invalidate(x, y int) { b.buf.invalidate(x, y) }
+
 func (b *winBackend) Flush() error {
 	spans := b.buf.dirty()
 	if len(spans) == 0 && b.cursorOn {
@@ -172,14 +184,13 @@ func (b *winBackend) Suspend() error { return errors.New("suspend not supported 
 func (b *winBackend) Resume() error { return nil }
 
 func (b *winBackend) readLoop() {
-	r := newReader(b.in)
 	for {
 		select {
 		case <-b.stop:
 			return
 		default:
 		}
-		evs, err := r.Next()
+		evs, err := b.reader.Next()
 		if err != nil {
 			return
 		}

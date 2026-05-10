@@ -121,3 +121,25 @@ func (b *cellBuf) dirty() []span {
 func (b *cellBuf) commit() {
 	copy(b.prev, b.cur)
 }
+
+// markClean sets prev[x,y] = cur[x,y] so the cell appears unchanged in
+// the next dirty() pass. Used by SIXEL views to suppress emission of
+// their sentinel cells (which would otherwise overwrite the graphics
+// pixels with spaces).
+func (b *cellBuf) markClean(x, y int) {
+	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
+		return
+	}
+	b.prev[y*b.cols+x] = b.cur[y*b.cols+x]
+}
+
+// invalidate zeroes prev[x,y] so the cell forces a re-emit on the next
+// dirty() pass even if its content is identical to last frame. Used by
+// SIXEL views to ensure cells covering their region get re-drawn each
+// frame on top of the freshly-emitted SIXEL pixels.
+func (b *cellBuf) invalidate(x, y int) {
+	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
+		return
+	}
+	b.prev[y*b.cols+x] = types.DrawCell{}
+}

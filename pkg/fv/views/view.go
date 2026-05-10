@@ -154,7 +154,24 @@ func (b *Base) GrowTo(w, h int) {
 
 // SetBounds installs new origin + size. Subclasses can intercept by
 // overriding; the default just records.
+//
+// Before mutating, we invalidate the cellbuf cells at the view's
+// current screen rect. Without this, a window that moves leaves the
+// cells at its old position diff-equal to the previous frame
+// (whatever the desktop draws there is the same as last time), so the
+// cell flush emits nothing — and any SIXEL pixels painted by an
+// ImageView/SixelCanvasView at that old rect remain stuck on screen.
+// Forcing those cells to re-emit gives them a fresh paint that
+// overwrites the lingering graphics.
+//
+// The Owner==nil guard skips invalidation during view construction
+// (NewBase is called before the view joins a parent group, and
+// ScreenOrigin would return local coords before the chain is wired).
 func (b *Base) SetBounds(r geom.Rect) {
+	if b.Owner != nil && b.Size.X > 0 && b.Size.Y > 0 {
+		sx, sy := b.ScreenOrigin()
+		InvalidateRect(sx, sy, b.Size.X, b.Size.Y)
+	}
 	b.Origin = r.A
 	b.Size = geom.Point{X: r.Width(), Y: r.Height()}
 }
@@ -344,10 +361,35 @@ func (b *Base) WriteChar(x, y int, c rune, color byte, count int) {
 var rootBackend RootBackend
 
 // RootBackend is the slice of term.Backend that views can call directly.
+//
+// WriteRaw is the escape hatch for views that need to emit terminal
+// control sequences directly — currently the SIXEL ImageView path. It
+// bypasses the cell buffer entirely; the view is responsible for
+// blanking the underlying cells so the diff flush doesn't fight with
+// graphics output.
+//
+// MarkClean / Invalidate are the SIXEL z-order primitives: SIXEL
+// graphics persist in the terminal until cell content overwrites them,
+// so views that emit SIXEL need to suppress emission of their sentinel
+// cells (MarkClean) AND force re-emit of cells covering them
+// (Invalidate). See PreFlusher below.
 type RootBackend interface {
 	SetCell(x, y int, c types.DrawCell)
 	GetCell(x, y int) types.DrawCell
 	Flush() error
+	WriteRaw(s string) error
+	MarkClean(x, y int)
+	Invalidate(x, y int)
+}
+
+// PreFlusher is implemented by views that need to inspect or mutate
+// the cell buffer between the tree walk and the diff flush. The
+// canonical use is SIXEL z-order resolution: by the time PreFlush
+// runs, all sibling/parent Draws have happened, so the view can see
+// which of its sentinel cells survived (uncovered) and which got
+// overwritten (covered).
+type PreFlusher interface {
+	PreFlush(b RootBackend)
 }
 
 // SetRootBackend wires the screen target. Called by app.Application.Init.
@@ -369,6 +411,33 @@ func GetCell(x, y int) types.DrawCell {
 		return types.DrawCell{}
 	}
 	return rootBackend.GetCell(x, y)
+}
+
+// WriteRaw emits raw bytes to the terminal, bypassing the cell buffer.
+// Used by SIXEL graphics paths where we need to drop a DCS string at
+// the cursor's current position.
+func WriteRaw(s string) error {
+	if rootBackend == nil {
+		return nil
+	}
+	return rootBackend.WriteRaw(s)
+}
+
+// InvalidateRect forces every cell in the given screen-coords rectangle
+// to re-emit on the next flush, regardless of whether it changed.
+// Group.Delete uses this to clear residual SIXEL pixels when a canvas/
+// imageview is removed: without it, the cells in that region would
+// diff-equal the previous frame (both " ") and the SIXEL graphics
+// would visibly persist with stale content under them.
+func InvalidateRect(x, y, w, h int) {
+	if rootBackend == nil {
+		return
+	}
+	for yy := y; yy < y+h; yy++ {
+		for xx := x; xx < x+w; xx++ {
+			rootBackend.Invalidate(xx, yy)
+		}
+	}
 }
 
 // ScreenOrigin returns the screen-coords origin of this view (Origin

@@ -30,6 +30,7 @@ type posixBackend struct {
 	events   chan Event
 	stop     chan struct{}
 	winch    chan os.Signal
+	reader   *reader
 }
 
 func (b *posixBackend) Init() error {
@@ -78,9 +79,18 @@ func (b *posixBackend) Init() error {
 	b.stop = make(chan struct{})
 	b.winch = make(chan os.Signal, 1)
 	signal.Notify(b.winch, syscall.SIGWINCH)
+	b.reader = newReader(b.in)
 
 	go b.readLoop()
 	go b.signalLoop()
+
+	// Wire the cell-pixel-size probe through the reader's CSI parser.
+	// Send the CSI 16t query, give the reader up to 200ms to forward a
+	// response via OnCellSize, then proceed regardless. Terminals that
+	// don't support the query (macOS Terminal, legacy ConHost, dumb
+	// tty, …) just don't reply and we fall back to the env-var
+	// override or sixel package default.
+	probeCellPixelSize(b.reader, b.out)
 
 	return nil
 }
@@ -129,6 +139,10 @@ func (b *posixBackend) WriteRaw(s string) error {
 }
 
 func (b *posixBackend) Clear(attr uint16) { b.buf.Clear(attr) }
+
+func (b *posixBackend) MarkClean(x, y int) { b.buf.markClean(x, y) }
+
+func (b *posixBackend) Invalidate(x, y int) { b.buf.invalidate(x, y) }
 
 func (b *posixBackend) Flush() error {
 	spans := b.buf.dirty()
@@ -204,14 +218,13 @@ func (b *posixBackend) signalLoop() {
 }
 
 func (b *posixBackend) readLoop() {
-	r := newReader(b.in)
 	for {
 		select {
 		case <-b.stop:
 			return
 		default:
 		}
-		evs, err := r.Next()
+		evs, err := b.reader.Next()
 		if err != nil {
 			return
 		}

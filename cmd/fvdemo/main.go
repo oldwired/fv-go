@@ -127,6 +127,9 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 		&menus.Item{Name: "~L~og Viewer", Command: cmAppLogViewer},
 		&menus.Item{Name: "~M~arkdown View", Command: cmAppMarkdown},
 		&menus.Item{Name: "~F~uzzy Finder", Command: cmAppFuzzy},
+		&menus.Item{Name: "~I~mage View", Command: cmAppImageView},
+		&menus.Item{Name: "Image View (~O~pen...)", Command: cmAppImageViewOpen},
+		&menus.Item{Name: "Sixel ~C~anvas", Command: cmAppCanvas},
 	)
 	systemMenu := menus.NewMenu(
 		&menus.Item{Name: "~U~ptime", Command: cmAppUptime},

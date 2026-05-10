@@ -69,8 +69,17 @@ func (p *ProcessView) Tick(now time.Time) bool {
 }
 
 // Draw paints the header + rows.
+//
+// Columns are sized so a value of 100.0% still fits without pushing
+// COMMAND off:
+//
+//	" %6s %6s %6s %s"      header
+//	" %6d %5.1f%% %5.1f%% %s"  row
+//
+// "%5.1f%%" is 6 cells wide for any value in [0, 999.9] — the trailing
+// "%" lines up with the right edge of the header's "%6s" column.
 func (p *ProcessView) Draw() {
-	header := fmt.Sprintf(" %6s %5s %5s %s", "PID", "CPU%", "MEM%", "COMMAND")
+	header := fmt.Sprintf(" %6s %6s %6s %s", "PID", "CPU%", "MEM%", "COMMAND")
 	if p.Size.Y > 0 {
 		buf := screen.MakeDrawBuffer(p.Size.X)
 		for x := 0; x < p.Size.X; x++ {
@@ -87,7 +96,7 @@ func (p *ProcessView) Draw() {
 		idx := p.Top + r - 1
 		if idx >= 0 && idx < len(p.procs) {
 			pr := p.procs[idx]
-			line := fmt.Sprintf(" %6d %4.1f%% %4.1f%% %s",
+			line := fmt.Sprintf(" %6d %5.1f%% %5.1f%% %s",
 				pr.PID, pr.CPU*100, pr.Mem*100, pr.Command)
 			screen.DrawStr(buf, 0, line, p.RowColor)
 		}

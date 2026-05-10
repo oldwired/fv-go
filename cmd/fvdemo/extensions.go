@@ -1,7 +1,11 @@
 package main
 
 import (
+	"image"
+	"image/color"
+	"math"
 	"math/rand"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -9,6 +13,8 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/dialogs"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
+	"github.com/oldwired/fv-go/pkg/fv/msgbox"
+	"github.com/oldwired/fv-go/pkg/fv/sixel"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/battery"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/cpucore"
@@ -17,11 +23,14 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/widgets/editor"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/editorgutter"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/fuzzyfinder"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/imageview"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/logviewer"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/markdown"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/network"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/process"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/ramview"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/sixelcanvas"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/stddlg"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/syntax"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/uptime"
 )
@@ -42,6 +51,9 @@ const (
 	cmAppBattery
 	cmAppNetwork
 	cmAppProcess
+	cmAppImageView
+	cmAppImageViewOpen
+	cmAppCanvas
 )
 
 // dispatchExtension routes the new menu items.
@@ -73,6 +85,12 @@ func dispatchExtension(a *app.Application, cmd uint16) bool {
 		showNetwork(a)
 	case cmAppProcess:
 		showProcess(a)
+	case cmAppImageView:
+		showImageView(a)
+	case cmAppImageViewOpen:
+		showImageViewOpen(a)
+	case cmAppCanvas:
+		showCanvas(a)
 	default:
 		return false
 	}
@@ -391,4 +409,178 @@ func jitter(v, amp float64) float64 {
 		return 1
 	}
 	return v
+}
+
+// showImageViewOpen runs a file-open dialog and shows the chosen image
+// in a window sized to match the image's native pixel dimensions
+// (clamped to the desktop area, aspect ratio preserved). Cancel = no-op.
+func showImageViewOpen(a *app.Application) {
+	path, ok := stddlg.Show(&a.Desktop.Group, stddlg.ModeOpen, "Open Image",
+		"", "*")
+	if !ok {
+		return
+	}
+	img, err := imageview.LoadFile(path)
+	if err != nil {
+		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
+			"Couldn't open %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
+		return
+	}
+	useSixel := sixel.IsSupported()
+	cols, rows := imageview.PreferredCells(img, useSixel)
+	// Reserve 2 cells for the window frame on each axis. Clamp the
+	// content area to whatever the desktop allows, preserving aspect.
+	deskExt := a.Desktop.GetExtent()
+	cols, rows = imageview.FitCells(cols, rows, deskExt.Width()-2, deskExt.Height()-2)
+	winW, winH := cols+2, rows+2
+	x := deskExt.A.X + (deskExt.Width()-winW)/2
+	y := deskExt.A.Y + (deskExt.Height()-winH)/2
+	if x < deskExt.A.X {
+		x = deskExt.A.X
+	}
+	if y < deskExt.A.Y {
+		y = deskExt.A.Y
+	}
+	win := views.NewWindow(geom.NewRect(x, y, x+winW, y+winH), filepath.Base(path), 0)
+	iv := imageview.New(geom.NewRect(1, 1, winW-1, winH-1))
+	iv.SetImage(img)
+	win.Insert(iv)
+	a.Desktop.InsertWindow(win)
+}
+
+// showCanvas opens a SixelCanvasView with a bouncing-balls animation
+// drawn into a pixel buffer. Demonstrates the SetPixel / FillRect /
+// DrawLine primitives + the Tick-driven update path.
+func showCanvas(a *app.Application) {
+	win := views.NewWindow(geom.NewRect(2, 1, 60, 20), "Canvas (bouncing balls)", 0)
+	w, h := win.Size.X, win.Size.Y
+	c := sixelcanvas.New(geom.NewRect(1, 1, w-1, h-1), 320, 200)
+	c.BG = 0x101030 // matches the Clear() color so undercovered cells blend in
+	balls := []*ball{
+		{x: 40, y: 30, dx: 1.7, dy: 1.1, color: 0xFF3030, radius: 6},
+		{x: 120, y: 80, dx: -1.3, dy: 1.4, color: 0x30C0FF, radius: 8},
+		{x: 200, y: 120, dx: 1.0, dy: -1.6, color: 0xFFE030, radius: 5},
+		{x: 250, y: 60, dx: -0.9, dy: -1.2, color: 0x60FF60, radius: 7},
+	}
+	c.OnTick = func() {
+		c.Clear(0x101030)
+		for _, b := range balls {
+			b.step(float64(c.PixelW), float64(c.PixelH))
+			c.FillRect(int(b.x)-b.radius, int(b.y)-b.radius, b.radius*2, b.radius*2, b.color)
+		}
+	}
+	win.Insert(c)
+	a.Desktop.InsertWindow(win)
+}
+
+type ball struct {
+	x, y   float64
+	dx, dy float64
+	color  uint32
+	radius int
+}
+
+func (b *ball) step(w, h float64) {
+	b.x += b.dx
+	b.y += b.dy
+	if b.x < float64(b.radius) {
+		b.x = float64(b.radius)
+		b.dx = -b.dx
+	}
+	if b.x > w-float64(b.radius) {
+		b.x = w - float64(b.radius)
+		b.dx = -b.dx
+	}
+	if b.y < float64(b.radius) {
+		b.y = float64(b.radius)
+		b.dy = -b.dy
+	}
+	if b.y > h-float64(b.radius) {
+		b.y = h - float64(b.radius)
+		b.dy = -b.dy
+	}
+}
+
+// showImageView opens a window with a synthesized 480×320 test image —
+// a hue-cycling Mandelbrot-ish fractal under a vertical-stripe color
+// strip. Generated in code so the demo doesn't need any asset files.
+// The view falls back to half-block automatically on terminals that
+// don't support SIXEL.
+func showImageView(a *app.Application) {
+	win := views.NewWindow(geom.NewRect(2, 1, 60, 22), "Image View", 0)
+	w, h := win.Size.X, win.Size.Y
+	iv := imageview.New(geom.NewRect(1, 1, w-1, h-1))
+	iv.SetImage(makeTestImage(480, 320))
+	win.Insert(iv)
+	a.Desktop.InsertWindow(win)
+}
+
+// makeTestImage builds a colorful image: 6 vertical color bars on top,
+// a Julia/Mandelbrot-style fractal painted in HSV underneath. Pure CPU,
+// runs in a few ms at 480×320.
+func makeTestImage(w, h int) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	stripeH := h / 8
+	bars := []color.RGBA{
+		{255, 0, 0, 255}, {255, 128, 0, 255}, {255, 255, 0, 255},
+		{0, 255, 0, 255}, {0, 128, 255, 255}, {128, 0, 255, 255},
+	}
+	for y := 0; y < stripeH; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, bars[(x*len(bars))/w])
+		}
+	}
+	for y := stripeH; y < h; y++ {
+		fy := (float64(y-stripeH)/float64(h-stripeH))*2.0 - 1.0
+		for x := 0; x < w; x++ {
+			fx := (float64(x)/float64(w))*3.0 - 2.0
+			zr, zi := 0.0, 0.0
+			n := 0
+			const maxIter = 64
+			for ; n < maxIter; n++ {
+				zr2, zi2 := zr*zr-zi*zi+fx, 2*zr*zi+fy
+				zr, zi = zr2, zi2
+				if zr*zr+zi*zi > 4 {
+					break
+				}
+			}
+			if n == maxIter {
+				img.SetRGBA(x, y, color.RGBA{0, 0, 0, 255})
+				continue
+			}
+			hue := float64(n) / maxIter
+			img.SetRGBA(x, y, hsvToRGB(hue, 0.85, 1.0))
+		}
+	}
+	return img
+}
+
+// hsvToRGB converts h, s, v in [0, 1] to a 24-bit RGBA color.
+func hsvToRGB(h, s, v float64) color.RGBA {
+	if s == 0 {
+		c := uint8(v * 255)
+		return color.RGBA{c, c, c, 255}
+	}
+	h6 := h * 6
+	sector := int(math.Floor(h6))
+	f := h6 - float64(sector)
+	p := v * (1 - s)
+	q := v * (1 - s*f)
+	t := v * (1 - s*(1-f))
+	var r, g, b float64
+	switch sector % 6 {
+	case 0:
+		r, g, b = v, t, p
+	case 1:
+		r, g, b = q, v, p
+	case 2:
+		r, g, b = p, v, t
+	case 3:
+		r, g, b = p, q, v
+	case 4:
+		r, g, b = t, p, v
+	case 5:
+		r, g, b = v, p, q
+	}
+	return color.RGBA{uint8(r * 255), uint8(g * 255), uint8(b * 255), 255}
 }

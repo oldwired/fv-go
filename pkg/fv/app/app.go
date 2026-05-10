@@ -203,6 +203,15 @@ func (p *Program) Run() {
 // the backend. Called both by Run between events and by modal loops
 // (MenuBox.Run, Group.ExecView) that need a redraw while they wait
 // for input.
+//
+// Order of operations:
+//
+//  1. p.draw()    — populates the cell buffer.
+//  2. preFlush()  — lets PreFlusher views (SIXEL) react to the final
+//     cell layout: they emit DCS, then mark their own
+//     cells "clean" (don't emit) and covering cells
+//     "dirty" (force emit, painting over SIXEL pixels).
+//  3. Flush()     — emits the cell diff to the terminal.
 func (p *Program) idle() {
 	pumped := p.pump()
 	animDirty := anim.Pulse()
@@ -210,8 +219,35 @@ func (p *Program) idle() {
 		return
 	}
 	p.draw()
+	p.preFlush()
 	_ = p.backend.Flush()
 	p.dirty = false
+}
+
+// preFlush walks the view tree calling PreFlush on any view that
+// implements it. The walk is depth-first, post-order so children fire
+// before their parents — same shape as Group.Draw.
+func (p *Program) preFlush() {
+	walkPreFlush(&p.Group, p.backend)
+}
+
+func walkPreFlush(g *views.Group, b views.RootBackend) {
+	for _, c := range g.Children {
+		if !c.BaseView().GetState(consts.SfVisible) {
+			continue
+		}
+		// Group-embedding views (Window, Dialog, Tabs, …) get their
+		// embedded Group via the InnerGroup() promotion. Plain leaf
+		// views won't satisfy the interface and are skipped.
+		if gi, ok := c.(interface{ InnerGroup() *views.Group }); ok {
+			if inner := gi.InnerGroup(); inner != nil && inner != g {
+				walkPreFlush(inner, b)
+			}
+		}
+		if pf, ok := c.(views.PreFlusher); ok {
+			pf.PreFlush(b)
+		}
+	}
 }
 
 // MarkDirty asks the program to repaint on the next idle pass. Handy

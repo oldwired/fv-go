@@ -136,6 +136,18 @@ type Backend interface {
 	// populate the host clipboard when supported.
 	WriteRaw(s string) error
 
+	// MarkClean tells the diff that cell (x,y) didn't change since the
+	// last flush, even if cur and prev compare unequal. Used by the
+	// SIXEL pre-flush hook to suppress emission of sentinel cells —
+	// without this they'd render as spaces and overwrite the graphics.
+	MarkClean(x, y int)
+
+	// Invalidate forces cell (x,y) to re-emit on the next flush even if
+	// cur and prev are equal. Used by SIXEL views to keep covering
+	// cells layered on top of their freshly-emitted graphics, and by
+	// view tear-down to clear residual SIXEL pixels at deleted regions.
+	Invalidate(x, y int)
+
 	// ShowCursor toggles cursor visibility independent of position.
 	ShowCursor(visible bool)
 

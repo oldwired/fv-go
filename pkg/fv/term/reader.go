@@ -39,6 +39,12 @@ type reader struct {
 	lastClickAt      time.Time
 	lastClickButtons byte
 	lastClickWhere   geom.Point
+
+	// OnCellSize fires when the reader sees a CSI 16t response
+	// ("ESC [ 6 ; H ; W t"). The backend uses this to feed
+	// sixel.SetCellSize without having to drain b.events on a hot
+	// path; the response itself is consumed (no Event emitted).
+	OnCellSize func(w, h int)
 }
 
 func newReader(in io.Reader) *reader {
@@ -197,6 +203,16 @@ func (r *reader) parseCSI() (Event, int, bool) {
 		r.paste = true
 		return Event{}, consumed, true
 	}
+	// Cell-size response: "ESC [ 6 ; H ; W t" (xterm CSI 16t reply).
+	// Fire OnCellSize and consume — no event emitted.
+	if priv == 0 && final == 't' {
+		if a, b, c, ok := parseThreeParams(params); ok && a == 6 {
+			if r.OnCellSize != nil {
+				r.OnCellSize(c, b) // params are height, width
+			}
+			return Event{}, consumed, true
+		}
+	}
 	// Focus events: ESC [ I / ESC [ O
 	if priv == 0 && params == "" && final == 'I' {
 		return Event{Kind: EventFocusIn}, consumed, true
@@ -346,6 +362,33 @@ func splitParams(s string) (a, b int) {
 	a = atoi(s[:semi])
 	b = atoi(s[semi+1:])
 	return
+}
+
+// parseThreeParams extracts the three semicolon-separated integers from
+// strings like "6;18;9" — used to decode CSI t responses.
+func parseThreeParams(s string) (a, b, c int, ok bool) {
+	semi1 := -1
+	semi2 := -1
+	for i := 0; i < len(s); i++ {
+		if s[i] == ';' {
+			if semi1 < 0 {
+				semi1 = i
+			} else {
+				semi2 = i
+				break
+			}
+		}
+	}
+	if semi1 < 0 || semi2 < 0 {
+		return 0, 0, 0, false
+	}
+	a = atoi(s[:semi1])
+	b = atoi(s[semi1+1 : semi2])
+	c = atoi(s[semi2+1:])
+	if a == 0 && b == 0 && c == 0 {
+		return 0, 0, 0, false
+	}
+	return a, b, c, true
 }
 
 func atoi(s string) int {
