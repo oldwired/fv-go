@@ -1,0 +1,58 @@
+// Package dialogs ports Dialogs.pas: Dialog, Button, InputLine, Label,
+// StaticText, ParamText, Cluster (CheckBoxes/RadioButtons), ListBox,
+// StringListBox, History.
+//
+// All dialog widgets descend from views.Base (or views.Group for those
+// that contain children, like Dialog itself).
+package dialogs
+
+import (
+	"github.com/oldwired/fv-go/pkg/fv/consts"
+	"github.com/oldwired/fv-go/pkg/fv/drivers"
+	"github.com/oldwired/fv-go/pkg/fv/geom"
+	"github.com/oldwired/fv-go/pkg/fv/views"
+)
+
+// Dialog is a modal Window with default-button + Esc cancel handling.
+type Dialog struct {
+	views.Window
+}
+
+// NewDialog builds a Dialog with title.
+func NewDialog(bounds geom.Rect, title string) *Dialog {
+	d := &Dialog{}
+	views.InitWindow(&d.Window, bounds, title, consts.WnNoNumber)
+	d.SetSelf(d)
+	d.Options |= consts.OfCentered
+	// Dialogs don't grow with the desktop — they keep their constructed
+	// size unless the caller explicitly resizes.
+	d.GrowMode = 0
+	return d
+}
+
+// GetTypeID for serial registry.
+func (d *Dialog) GetTypeID() string { return "dialog" }
+
+// HandleEvent extends Window with Esc -> cmCancel and Enter -> default.
+func (d *Dialog) HandleEvent(ev *drivers.Event) {
+	d.Window.HandleEvent(ev)
+	if ev.What == consts.EvKeyDown {
+		switch ev.KeyCode {
+		case consts.KbEsc:
+			notify := drivers.Event{What: consts.EvCommand, Command: consts.CmCancel}
+			d.PutEvent(&notify)
+			d.ClearEvent(ev)
+		case consts.KbEnter:
+			notify := drivers.Event{What: consts.EvBroadcast, Command: consts.CmDefault}
+			d.PutEvent(&notify)
+			d.ClearEvent(ev)
+		}
+	}
+	if ev.What == consts.EvCommand {
+		switch ev.Command {
+		case consts.CmOK, consts.CmCancel, consts.CmYes, consts.CmNo:
+			d.EndModal(ev.Command)
+			d.ClearEvent(ev)
+		}
+	}
+}
