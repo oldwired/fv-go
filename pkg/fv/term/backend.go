@@ -112,6 +112,11 @@ type Backend interface {
 	// the viewport are silently dropped.
 	SetCell(x, y int, c types.DrawCell)
 
+	// GetCell reads one cell from the back buffer. Returns the zero
+	// DrawCell for out-of-range coordinates. Used by the shadow render
+	// path so it can preserve the underlying character.
+	GetCell(x, y int) types.DrawCell
+
 	// Clear fills the back buffer with empty cells using attr.
 	Clear(attr uint16)
 

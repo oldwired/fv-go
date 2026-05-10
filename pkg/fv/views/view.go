@@ -316,6 +316,7 @@ var rootBackend RootBackend
 // RootBackend is the slice of term.Backend that views can call directly.
 type RootBackend interface {
 	SetCell(x, y int, c types.DrawCell)
+	GetCell(x, y int) types.DrawCell
 	Flush() error
 }
 
@@ -329,6 +330,23 @@ func Flush() error {
 		return nil
 	}
 	return rootBackend.Flush()
+}
+
+// GetCell reads one cell of the current back buffer at screen coordinates
+// (x, y). Used by shadow rendering to preserve underlying glyphs.
+func GetCell(x, y int) types.DrawCell {
+	if rootBackend == nil {
+		return types.DrawCell{}
+	}
+	return rootBackend.GetCell(x, y)
+}
+
+// ScreenOrigin returns the screen-coords origin of this view (Origin
+// plus accumulated ancestor origins). Useful for views that need to
+// read cells outside their own bounds.
+func (b *Base) ScreenOrigin() (int, int) {
+	dx, dy := b.globalOriginDelta()
+	return dx + b.Origin.X, dy + b.Origin.Y
 }
 
 // GetColor maps a color index through the view's owner chain palette.

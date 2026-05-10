@@ -215,18 +215,26 @@ func (mb *MenuBox) Draw() {
 	screen.DrawCell(bot, w-1, "┘", frame)
 	mb.WriteLine(0, h-1, w, 1, bot)
 
-	// Shadow: 2 cols on the right (rows 1..h), 1 row below (cols 2..w+2).
-	shadow := types.MakeAttr(0x08, 0x00)
-	shadowCell := screen.DrawBuffer{
-		{Ch: " ", Attr: shadow},
-		{Ch: " ", Attr: shadow},
+	// Cast shadow: read the cell currently sitting at each shadow
+	// position and rewrite it dimmed, preserving the glyph. Mirrors
+	// Window.drawShadow.
+	sx, sy := mb.ScreenOrigin()
+	dim := func(cell types.DrawCell) types.DrawCell {
+		if cell.Ch == "" {
+			cell.Ch = " "
+		}
+		return types.DrawCell{Ch: cell.Ch, Attr: types.MakeAttr(0x08, 0x00)}
 	}
 	for y := 1; y <= h; y++ {
-		mb.WriteLine(w, y, 2, 1, shadowCell)
+		for dx := 0; dx < 2; dx++ {
+			cellX, cellY := sx+w+dx, sy+y
+			out := dim(views.GetCell(cellX, cellY))
+			mb.WriteLine(w+dx, y, 1, 1, screen.DrawBuffer{out})
+		}
 	}
-	bottomShadow := make(screen.DrawBuffer, w)
-	for i := range bottomShadow {
-		bottomShadow[i] = types.DrawCell{Ch: " ", Attr: shadow}
+	for dx := 2; dx < w+2; dx++ {
+		cellX, cellY := sx+dx, sy+h
+		out := dim(views.GetCell(cellX, cellY))
+		mb.WriteLine(dx, h, 1, 1, screen.DrawBuffer{out})
 	}
-	mb.WriteLine(2, h, w, 1, bottomShadow)
 }

@@ -118,6 +118,8 @@ func (b *posixBackend) Size() (cols, rows int) {
 
 func (b *posixBackend) SetCell(x, y int, c types.DrawCell) { b.buf.Set(x, y, c) }
 
+func (b *posixBackend) GetCell(x, y int) types.DrawCell { return b.buf.Get(x, y) }
+
 func (b *posixBackend) Clear(attr uint16) { b.buf.Clear(attr) }
 
 func (b *posixBackend) Flush() error {

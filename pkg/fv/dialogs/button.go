@@ -107,10 +107,16 @@ func (b *Button) Draw() {
 	}
 }
 
-// HandleEvent: space, enter, click -> press.
+// HandleEvent dispatches:
+//   - mouse-down -> mouseLoop (press-and-hold semantics: depress while
+//     the cursor stays over the button, pop back up if it moves away,
+//     fire the command only if mouse-up lands while still over)
+//   - Enter / Space (when focused) -> brief press flash + fire
+//   - Alt+hotkey -> brief press flash + fire
+//   - cmDefault broadcast (when this is the default button) -> fire
 func (b *Button) HandleEvent(ev *drivers.Event) {
 	if ev.What == consts.EvMouseDown {
-		b.press(ev)
+		b.mouseLoop(ev)
 		return
 	}
 	if ev.What == consts.EvKeyDown {
@@ -118,12 +124,12 @@ func (b *Button) HandleEvent(ev *drivers.Event) {
 		switch ev.KeyCode {
 		case consts.KbEnter:
 			if b.GetState(consts.SfFocused) || b.AmDefault {
-				b.press(ev)
+				b.flashAndFire(ev)
 				return
 			}
 		case consts.KbSpaceBar:
 			if b.GetState(consts.SfFocused) {
-				b.press(ev)
+				b.flashAndFire(ev)
 				return
 			}
 		}
@@ -133,25 +139,79 @@ func (b *Button) HandleEvent(ev *drivers.Event) {
 				letter = byte(ev.KeyCode & 0xFF)
 			}
 			if equalIgnoreCase(letter, hot) {
-				b.press(ev)
+				b.flashAndFire(ev)
 				return
 			}
 		}
 	}
 	if ev.What == consts.EvBroadcast && ev.Command == consts.CmDefault && b.AmDefault {
-		b.press(ev)
+		b.flashAndFire(ev)
 		return
 	}
 }
 
-func (b *Button) press(ev *drivers.Event) {
-	// Brief pressed-state flash so the click is visually confirmed.
+// mouseLoop runs from the moment a mouse-down lands on the button.
+// It depresses the button visually, follows mouse motion (popping the
+// button back up if the cursor leaves the bounds, depressing again if
+// it returns), and fires the command on mouse-up only if the cursor
+// is still over the button. This matches the behavior of TV's TButton.
+func (b *Button) mouseLoop(start *drivers.Event) {
+	q := views.GetEventQueue()
+	if q == nil {
+		b.ClearEvent(start)
+		return
+	}
+
+	over := true
+	b.pressed = true
+	b.Draw()
+	_ = views.Flush()
+
+	for {
+		if pump := views.GetPump(); pump != nil {
+			pump()
+		}
+		ev, ok := q.Get()
+		if !ok {
+			if wait := views.GetWait(); wait != nil {
+				wait()
+			}
+			continue
+		}
+		switch ev.What {
+		case consts.EvMouseMove, consts.EvMouseDown:
+			nowOver := b.MouseInView(ev.Where)
+			if nowOver != over {
+				over = nowOver
+				b.pressed = nowOver
+				b.Draw()
+				_ = views.Flush()
+			}
+		case consts.EvMouseUp:
+			fire := over
+			b.pressed = false
+			b.Draw()
+			_ = views.Flush()
+			if fire {
+				cmd := drivers.Event{What: consts.EvCommand, Command: b.Command}
+				b.PutEvent(&cmd)
+			}
+			b.ClearEvent(start)
+			return
+		}
+	}
+}
+
+// flashAndFire is the keyboard / hotkey activation: a brief depressed
+// flash with no chance for the user to cancel.
+func (b *Button) flashAndFire(ev *drivers.Event) {
 	b.pressed = true
 	b.Draw()
 	_ = views.Flush()
 	time.Sleep(60 * time.Millisecond)
 	b.pressed = false
 	b.Draw()
+	_ = views.Flush()
 	cmd := drivers.Event{What: consts.EvCommand, Command: b.Command}
 	b.PutEvent(&cmd)
 	b.ClearEvent(ev)

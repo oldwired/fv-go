@@ -189,27 +189,50 @@ func (w *Window) Draw() {
 	}
 }
 
-// drawShadow paints a 2-cell-wide / 1-row-tall shadow on the right and
-// bottom of the window. Cells outside the window's bounds are written
-// directly via the global backend (the WriteLine helper accepts any
-// coordinate; out-of-range cells are dropped by the cell buffer).
+// drawShadow paints a "cast shadow" on the right and bottom of the
+// window: it reads whatever the cells underneath the shadow currently
+// hold (typically the desktop wallpaper or another window), then
+// rewrites them with a darkened color while preserving the glyph.
+//
+// This works because Group.Draw runs children in z-order, so by the
+// time this Window's drawShadow runs, the cells around its border
+// already hold whatever was drawn behind it for this frame.
 func (w *Window) drawShadow() {
-	shadow := types.MakeAttr(0x08, 0x00) // dim gray on black
-	cell := screen.DrawBuffer{
-		{Ch: " ", Attr: shadow},
-		{Ch: " ", Attr: shadow},
+	if rootBackend == nil {
+		return
 	}
-	// Right edge: rows 1..h, two columns wide, just past the right border.
+	sx, sy := w.ScreenOrigin()
+	// Right edge: 2 columns wide, rows 1..h.
 	for y := 1; y <= w.Size.Y; y++ {
-		w.WriteLine(w.Size.X, y, 2, 1, cell)
+		for dx := 0; dx < 2; dx++ {
+			cellX := sx + w.Size.X + dx
+			cellY := sy + y
+			under := castShadow(rootBackend.GetCell(cellX, cellY))
+			rootBackend.SetCell(cellX, cellY, under)
+		}
 	}
-	// Bottom edge: one row below, columns 2..w+1 (offset 2 from the
-	// left so the shadow hangs off the corner the way TV draws it).
-	bot := make(screen.DrawBuffer, w.Size.X)
-	for i := range bot {
-		bot[i] = types.DrawCell{Ch: " ", Attr: shadow}
+	// Bottom edge: cols 2..w+1 (offset by 2 so the corner doesn't
+	// stick out past the left edge of the window).
+	for dx := 2; dx < w.Size.X+2; dx++ {
+		cellX := sx + dx
+		cellY := sy + w.Size.Y
+		under := castShadow(rootBackend.GetCell(cellX, cellY))
+		rootBackend.SetCell(cellX, cellY, under)
 	}
-	w.WriteLine(2, w.Size.Y, w.Size.X, 1, bot)
+}
+
+// castShadow returns c with its colors reduced to a dim-gray-on-black
+// rendering, keeping the existing glyph. The result looks like the
+// underlying content fading into darkness — closer to TV's classic
+// drop-shadow effect than a solid block.
+func castShadow(c types.DrawCell) types.DrawCell {
+	if c.Ch == "" {
+		c.Ch = " "
+	}
+	return types.DrawCell{
+		Ch:   c.Ch,
+		Attr: types.MakeAttr(0x08, 0x00),
+	}
 }
 
 // Title returns the window's title (used by Frame).
