@@ -303,11 +303,35 @@ func (g *Group) Draw() {
 	}
 }
 
+// ChangeBounds installs new bounds on this group and walks children
+// applying their GrowMode. Recurses into nested Groups so a deeply
+// nested Frame stretches when an outer Window is resized.
+func (g *Group) ChangeBounds(r geom.Rect) {
+	oldSize := g.Size
+	g.SetBounds(r)
+	delta := geom.Point{X: g.Size.X - oldSize.X, Y: g.Size.Y - oldSize.Y}
+	if delta.X == 0 && delta.Y == 0 {
+		return
+	}
+	for _, c := range g.Children {
+		c.ChangeBounds(c.BaseView().CalcBounds(delta))
+	}
+}
+
 // EndModal terminates an active ExecView with the given command.
 func (g *Group) EndModal(cmd uint16) {
 	g.endState = cmd
 	g.State |= consts.SfModal
 }
+
+// EndStateValue returns the command that EndModal recorded (0 if none).
+// Promoted through embedding so Window/Dialog also expose it. ExecView
+// uses this via interface to pick up modal-termination requests no
+// matter the concrete type.
+func (g *Group) EndStateValue() uint16 { return g.endState }
+
+// ClearEndState resets the recorded EndModal command.
+func (g *Group) ClearEndState() { g.endState = 0 }
 
 // Valid walks children: a group is valid for a command iff every child
 // reports valid. Mirrors TGroup.Valid.
@@ -362,10 +386,17 @@ func (g *Group) ExecView(v View) uint16 {
 			}
 		}
 		v.HandleEvent(&ev)
-		if vg, isGroup := v.(*Group); isGroup && vg.endState != 0 {
-			cmd := vg.endState
-			vg.endState = 0
-			return cmd
+		// Pick up EndModal even when v's concrete type is *Dialog or
+		// *Window — both inherit EndStateValue via Group embedding.
+		// Direct *Group type assertion misses those.
+		if es, ok := v.(interface {
+			EndStateValue() uint16
+			ClearEndState()
+		}); ok {
+			if cmd := es.EndStateValue(); cmd != 0 {
+				es.ClearEndState()
+				return cmd
+			}
 		}
 		if modalCmd != 0 {
 			return modalCmd

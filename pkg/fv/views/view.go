@@ -33,6 +33,10 @@ type View interface {
 
 	// Layout
 	SizeLimits() (min, max geom.Point)
+	// ChangeBounds installs new bounds and propagates to children
+	// according to their GrowMode. Concrete Group types override the
+	// default Base impl to recurse.
+	ChangeBounds(r geom.Rect)
 
 	// Lifecycle
 	SetState(state uint16, enable bool)
@@ -153,6 +157,32 @@ func (b *Base) GrowTo(w, h int) {
 func (b *Base) SetBounds(r geom.Rect) {
 	b.Origin = r.A
 	b.Size = geom.Point{X: r.Width(), Y: r.Height()}
+}
+
+// ChangeBounds is the polymorphic resize entry point. The Base default
+// just sets the bounds — Group overrides to also recompute child
+// bounds via GrowMode (so resizing a Window stretches its Frame).
+func (b *Base) ChangeBounds(r geom.Rect) {
+	b.SetBounds(r)
+}
+
+// CalcBounds computes the new bounds this view should occupy when its
+// parent grew by delta. Each gf*Grow* bit pulls one corner along.
+func (b *Base) CalcBounds(delta geom.Point) geom.Rect {
+	cur := b.GetBounds()
+	if b.GrowMode&consts.GfGrowLoX != 0 {
+		cur.A.X += delta.X
+	}
+	if b.GrowMode&consts.GfGrowLoY != 0 {
+		cur.A.Y += delta.Y
+	}
+	if b.GrowMode&consts.GfGrowHiX != 0 {
+		cur.B.X += delta.X
+	}
+	if b.GrowMode&consts.GfGrowHiY != 0 {
+		cur.B.Y += delta.Y
+	}
+	return cur
 }
 
 // GetBounds returns the rectangle (Origin, Origin+Size).

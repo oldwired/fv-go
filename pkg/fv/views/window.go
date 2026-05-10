@@ -274,6 +274,13 @@ func (w *Window) HandleEvent(ev *drivers.Event) {
 			w.ClearEvent(ev)
 			return
 		}
+		// Resize handle: bottom-right corner cell (the ◢ glyph).
+		if w.flags&consts.WfGrow != 0 &&
+			local.X == w.Size.X-1 && local.Y == w.Size.Y-1 {
+			w.resizeLoop(ev)
+			w.ClearEvent(ev)
+			return
+		}
 		// Click anywhere else on the window raises it to the top of
 		// the parent's z-order. Only meaningful for non-modal windows
 		// — modal windows are already on top by definition.
@@ -303,15 +310,67 @@ func (w *Window) HandleEvent(ev *drivers.Event) {
 	}
 }
 
-// close ends the modal loop with cmCancel for modal windows; for
+// Close ends the modal loop with cmCancel for modal windows; for
 // non-modal ones it removes the window from its parent group entirely.
-func (w *Window) close() {
+// Exported so menu commands and other code paths can request closing.
+func (w *Window) Close() {
 	if w.GetState(consts.SfModal) {
 		w.EndModal(consts.CmCancel)
 		return
 	}
 	if w.Owner != nil {
 		w.Owner.Delete(w.self)
+	}
+}
+
+// close is the lowercase alias retained for the click-handler call
+// site; new callers should prefer Close.
+func (w *Window) close() { w.Close() }
+
+// resizeLoop runs while the user holds the mouse on the bottom-right
+// corner. Each motion event recomputes the window's size based on the
+// cursor delta and re-issues ChangeBounds so children grow with the
+// frame.
+func (w *Window) resizeLoop(start *drivers.Event) {
+	q := globalQueue
+	if q == nil {
+		return
+	}
+	startSize := w.Size
+	startMouse := start.Where
+
+	w.State |= consts.SfDragging
+	defer func() { w.State &^= consts.SfDragging }()
+	for {
+		if pumpFn != nil {
+			pumpFn()
+		}
+		ev, ok := q.Get()
+		if !ok {
+			if waitFn != nil {
+				waitFn()
+			}
+			continue
+		}
+		switch ev.What {
+		case consts.EvMouseUp:
+			return
+		case consts.EvMouseMove, consts.EvMouseDown:
+			newW := startSize.X + (ev.Where.X - startMouse.X)
+			newH := startSize.Y + (ev.Where.Y - startMouse.Y)
+			if newW < 16 {
+				newW = 16
+			}
+			if newH < 4 {
+				newH = 4
+			}
+			if newW != w.Size.X || newH != w.Size.Y {
+				w.ChangeBounds(geom.Rect{
+					A: w.Origin,
+					B: geom.Point{X: w.Origin.X + newW, Y: w.Origin.Y + newH},
+				})
+			}
+		}
 	}
 }
 
@@ -353,13 +412,18 @@ func (w *Window) dragLoop(start *drivers.Event) {
 }
 
 func (w *Window) zoom() {
-	cur := w.GetBounds()
-	if cur.Equals(w.zoomRect) && w.Owner != nil {
-		// Maximize against owner's extent.
-		w.SetBounds(w.Owner.GetExtent())
-	} else if w.Owner != nil {
-		w.SetBounds(w.zoomRect)
+	if w.Owner == nil {
+		return
 	}
+	cur := w.GetBounds()
+	if cur.Equals(w.Owner.GetExtent()) {
+		// Already maximized — restore.
+		w.ChangeBounds(w.zoomRect)
+		return
+	}
+	// Remember the pre-maximize bounds so the next zoom restores it.
+	w.zoomRect = cur
+	w.ChangeBounds(w.Owner.GetExtent())
 }
 
 // Background fills its area with a single character. Used by Desktop.

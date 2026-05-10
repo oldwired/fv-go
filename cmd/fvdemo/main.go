@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	cmDialogDemo    uint16 = 100
-	cmListBoxDemo   uint16 = 101
-	cmValidatorDemo uint16 = 102
-	cmAboutDemo     uint16 = 103
-	cmNewWindow     uint16 = 104
+	cmDialogDemo      uint16 = 100
+	cmListBoxDemo     uint16 = 101
+	cmValidatorDemo   uint16 = 102
+	cmAboutDemo       uint16 = 103
+	cmNewWindow       uint16 = 104
+	cmCascadeNoResize uint16 = 110
 )
 
 func main() {
@@ -56,6 +57,36 @@ func main() {
 		case cmNewWindow:
 			openNonModalWindow(a)
 			return true
+		case consts.CmZoom:
+			zoomFocused(a)
+			return true
+		case consts.CmTile:
+			tileWindows(a)
+			return true
+		case consts.CmTileHorizontal:
+			tileHorizontal(a)
+			return true
+		case consts.CmTileVertical:
+			tileVertical(a)
+			return true
+		case consts.CmCascade:
+			cascadeWindows(a)
+			return true
+		case cmCascadeNoResize:
+			cascadeNoResize(a)
+			return true
+		case consts.CmNext:
+			cycleWindow(a, +1)
+			return true
+		case consts.CmPrev:
+			cycleWindow(a, -1)
+			return true
+		case consts.CmClose:
+			closeFocused(a)
+			return true
+		case consts.CmCloseAll:
+			closeAll(a)
+			return true
 		}
 		return false
 	}
@@ -76,9 +107,26 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 		&menus.Item{Name: "~L~ist Box", Command: cmListBoxDemo},
 		&menus.Item{Name: "~V~alidators", Command: cmValidatorDemo},
 	)
+	windowMenu := menus.NewMenu(
+		&menus.Item{Name: "~Z~oom", Command: consts.CmZoom},
+		menus.Separator(),
+		&menus.Item{Name: "~T~ile (grid)", Command: consts.CmTile},
+		&menus.Item{Name: "Tile ~H~orizontal", Command: consts.CmTileHorizontal},
+		&menus.Item{Name: "Tile ~V~ertical", Command: consts.CmTileVertical},
+		menus.Separator(),
+		&menus.Item{Name: "~C~ascade", Command: consts.CmCascade},
+		&menus.Item{Name: "Cascade (Keep ~S~izes)", Command: cmCascadeNoResize},
+		menus.Separator(),
+		&menus.Item{Name: "~N~ext", Command: consts.CmNext},
+		&menus.Item{Name: "~P~revious", Command: consts.CmPrev},
+		menus.Separator(),
+		&menus.Item{Name: "C~l~ose", Command: consts.CmClose},
+		&menus.Item{Name: "Close ~A~ll", Command: consts.CmCloseAll},
+	)
 	return menus.NewMenuBar(bounds, menus.NewMenu(
 		&menus.Item{Name: "~F~ile", Sub: fileMenu},
 		&menus.Item{Name: "~T~est", Sub: testMenu},
+		&menus.Item{Name: "~W~indow", Sub: windowMenu},
 	))
 }
 
