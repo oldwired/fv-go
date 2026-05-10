@@ -26,9 +26,11 @@ type Program struct {
 	StatusLine views.View
 	Desktop    *Desktop
 
-	backend term.Backend
-	queue   *drivers.Queue
-	quit    bool
+	backend   term.Backend
+	queue     *drivers.Queue
+	quit      bool
+	dirty     bool        // set when an event/anim/etc. has changed state and a redraw is owed
+	waitTimer *time.Timer // reused across waitOne() calls to skip per-wake allocation
 
 	// OnCommand, if non-nil, is invoked for every EvCommand event the
 	// view tree didn't consume. Returning true marks the command as
@@ -48,6 +50,7 @@ func NewProgram(backend term.Backend) *Program {
 	views.SetEventQueue(p.queue)
 	views.SetPump(p.idle)
 	views.SetWait(p.waitOne)
+	views.SetMarkDirty(func() { p.dirty = true })
 	views.SetRootBackend(backend)
 	return p
 }
@@ -156,6 +159,7 @@ func (p *Program) Quit() { p.quit = true }
 // Run drives the program loop until Quit() is called or cmQuit fires.
 func (p *Program) Run() {
 	p.State |= consts.SfActive | consts.SfVisible | consts.SfExposed
+	p.dirty = true // initial paint
 	for !p.quit {
 		p.idle()
 		ev, ok := p.queue.Get()
@@ -171,6 +175,7 @@ func (p *Program) Run() {
 			if pt, ok := ev.InfoPtr.(geom.Point); ok {
 				p.ChangeBounds(geom.NewRect(0, 0, pt.X, pt.Y))
 			}
+			p.dirty = true
 			continue
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
@@ -188,6 +193,8 @@ func (p *Program) Run() {
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
 			return
 		}
+		// Anything we just handled could have changed visible state.
+		p.dirty = true
 	}
 }
 
@@ -197,22 +204,35 @@ func (p *Program) Run() {
 // (MenuBox.Run, Group.ExecView) that need a redraw while they wait
 // for input.
 func (p *Program) idle() {
-	p.pump()
-	anim.Pulse()
+	pumped := p.pump()
+	animDirty := anim.Pulse()
+	if !p.dirty && !pumped && !animDirty {
+		return
+	}
 	p.draw()
 	_ = p.backend.Flush()
+	p.dirty = false
 }
 
-// pump drains term events into the FV queue without blocking.
-func (p *Program) pump() {
+// MarkDirty asks the program to repaint on the next idle pass. Handy
+// when external code (e.g., async data arriving) mutates a view's
+// state outside the event/anim path.
+func (p *Program) MarkDirty() { p.dirty = true }
+
+// pump drains term events into the FV queue. Returns true if at least
+// one event was pushed — the idle loop uses that to decide whether
+// it needs to redraw.
+func (p *Program) pump() bool {
+	any := false
 	for {
 		select {
 		case te := <-p.backend.Events():
 			if e := drivers.FromTermEvent(te); e.What != 0 {
 				p.queue.Put(e)
+				any = true
 			}
 		default:
-			return
+			return any
 		}
 	}
 }
@@ -223,10 +243,29 @@ func (p *Program) pump() {
 // events. With no animations registered the wait is unbounded; with
 // at least one ticker it caps at the smallest interval so animations
 // stay responsive while idle.
+//
+// Pumping an event does NOT set dirty here — the dirty flag is set by
+// the caller after it actually handles the event (Run sets it directly,
+// modal loops call views.MarkDirty()). Setting it here too would cause
+// a stale extra draw between waitOne returning and the event being
+// dispatched.
+//
+// The timer is reused across calls to avoid allocating one per wake
+// (anim intervals as low as 50ms otherwise mean 20 timers/sec of GC
+// churn for a process that's otherwise idle).
 func (p *Program) waitOne() {
 	if d := anim.MinInterval(); d > 0 {
-		timer := time.NewTimer(d)
-		defer timer.Stop()
+		if p.waitTimer == nil {
+			p.waitTimer = time.NewTimer(d)
+		} else {
+			if !p.waitTimer.Stop() {
+				select {
+				case <-p.waitTimer.C:
+				default:
+				}
+			}
+			p.waitTimer.Reset(d)
+		}
 		select {
 		case te, alive := <-p.backend.Events():
 			if !alive {
@@ -235,8 +274,7 @@ func (p *Program) waitOne() {
 			if e := drivers.FromTermEvent(te); e.What != 0 {
 				p.queue.Put(e)
 			}
-		case <-timer.C:
-			// Fall through; idle() will fire anim.Pulse on the next pass.
+		case <-p.waitTimer.C:
 		}
 		return
 	}
@@ -252,6 +290,55 @@ func (p *Program) waitOne() {
 func (p *Program) draw() {
 	p.backend.Clear(0)
 	p.Draw()
+	p.placeCursor()
+}
+
+// placeCursor walks the focus chain to find the deepest focused view;
+// if it has SfCursorVis, the terminal cursor is positioned at that
+// view's local Cursor coords (translated to screen space). Otherwise
+// the cursor is hidden. Without this, no view ever shows a caret.
+//
+// The walk uses an interface assertion rather than `*views.Group`
+// because Window, Dialog, Program, Tabs, Accordion etc. *embed*
+// Group as a value field — they're not *Group themselves but they
+// inherit Current() through method promotion.
+func (p *Program) placeCursor() {
+	type currenter interface {
+		Current() views.View
+	}
+	var leaf views.View = p
+	for {
+		c, ok := leaf.(currenter)
+		if !ok {
+			break
+		}
+		next := c.Current()
+		if next == nil {
+			break
+		}
+		leaf = next
+	}
+	if leaf == nil {
+		p.backend.SetCursor(-1, -1)
+		p.backend.ShowCursor(false)
+		return
+	}
+	bv := leaf.BaseView()
+	if bv == nil || bv.State&consts.SfCursorVis == 0 || bv.State&consts.SfFocused == 0 {
+		p.backend.SetCursor(-1, -1)
+		p.backend.ShowCursor(false)
+		return
+	}
+	if bv.Cursor.X < 0 || bv.Cursor.Y < 0 ||
+		bv.Cursor.X >= bv.Size.X || bv.Cursor.Y >= bv.Size.Y {
+		// Caret outside the view's visible bounds — hide.
+		p.backend.SetCursor(-1, -1)
+		p.backend.ShowCursor(false)
+		return
+	}
+	gx, gy := bv.ScreenOrigin()
+	p.backend.SetCursor(gx+bv.Cursor.X, gy+bv.Cursor.Y)
+	p.backend.ShowCursor(true)
 }
 
 // Application wraps Program with backend lifecycle (Init / Done).

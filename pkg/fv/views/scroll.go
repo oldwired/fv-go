@@ -70,8 +70,13 @@ func (s *ScrollBar) SetValue(v int) {
 
 // Draw paints the track + thumb.
 func (s *ScrollBar) Draw() {
-	color := types.MakeAttr(0x70, 0x70)
-	thumbColor := types.MakeAttr(0x70, 0x70)
+	// Track ▒ is light-gray on cyan (close to TV's classic scrollbar
+	// palette); the thumb stands out as bright white on the same bg.
+	// (The earlier MakeAttr(0x70, 0x70) was a literal copy of a Pascal
+	// packed-attribute byte and rendered as black-on-black after the
+	// low-nibble mask in legacyFGCode.)
+	color := types.MakeAttr(0x07, 0x03)
+	thumbColor := types.MakeAttr(0x0F, 0x03)
 	if s.horizontal {
 		buf := screen.MakeDrawBuffer(s.Size.X)
 		screen.DrawChar(buf, 0, '◄', color, 1)

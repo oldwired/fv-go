@@ -1,0 +1,96 @@
+// Package process provides ProcessView — a simple process-list table:
+// PID, CPU%, MEM%, command. Bring-your-own sampler.
+package process
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/oldwired/fv-go/pkg/fv/anim"
+	"github.com/oldwired/fv-go/pkg/fv/geom"
+	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/views"
+)
+
+// Process is one row.
+type Process struct {
+	PID     int
+	CPU     float64 // [0.0, 1.0]
+	Mem     float64 // [0.0, 1.0]
+	Command string
+}
+
+// Sampler returns the process list.
+type Sampler func() []Process
+
+// ProcessView is a non-editing table.
+type ProcessView struct {
+	views.Base
+
+	Sample   Sampler
+	Interval time.Duration
+	procs    []Process
+	Top      int
+
+	HeaderColor uint16
+	RowColor    uint16
+}
+
+// New constructs a ProcessView.
+func New(bounds geom.Rect, sampler Sampler, interval time.Duration) *ProcessView {
+	if interval == 0 {
+		interval = 2 * time.Second
+	}
+	p := &ProcessView{
+		Base:        views.NewBase(bounds),
+		Sample:      sampler,
+		Interval:    interval,
+		HeaderColor: types.MakeAttr(0x0F, 0x04),
+		RowColor:    types.MakeAttr(0x07, 0x01),
+	}
+	p.SetSelf(p)
+	if sampler != nil {
+		anim.Register(p, interval)
+	}
+	return p
+}
+
+// GetTypeID for serial registry.
+func (p *ProcessView) GetTypeID() string { return "processview" }
+
+// Tick polls.
+func (p *ProcessView) Tick(now time.Time) bool {
+	if p.Sample == nil {
+		return false
+	}
+	p.procs = p.Sample()
+	return true
+}
+
+// Draw paints the header + rows.
+func (p *ProcessView) Draw() {
+	header := fmt.Sprintf(" %6s %5s %5s %s", "PID", "CPU%", "MEM%", "COMMAND")
+	if p.Size.Y > 0 {
+		buf := screen.MakeDrawBuffer(p.Size.X)
+		for x := 0; x < p.Size.X; x++ {
+			screen.DrawCell(buf, x, " ", p.HeaderColor)
+		}
+		screen.DrawStr(buf, 0, header, p.HeaderColor)
+		p.WriteLine(0, 0, p.Size.X, 1, buf)
+	}
+	for r := 1; r < p.Size.Y; r++ {
+		buf := screen.MakeDrawBuffer(p.Size.X)
+		for x := 0; x < p.Size.X; x++ {
+			screen.DrawCell(buf, x, " ", p.RowColor)
+		}
+		idx := p.Top + r - 1
+		if idx >= 0 && idx < len(p.procs) {
+			pr := p.procs[idx]
+			line := fmt.Sprintf(" %6d %4.1f%% %4.1f%% %s",
+				pr.PID, pr.CPU*100, pr.Mem*100, pr.Command)
+			screen.DrawStr(buf, 0, line, p.RowColor)
+		}
+		p.WriteLine(0, r, p.Size.X, 1, buf)
+	}
+}

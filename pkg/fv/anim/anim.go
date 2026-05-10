@@ -59,19 +59,35 @@ func Unregister(t Ticker) {
 	}
 }
 
+// Liveness lets a Ticker tell the registry "drop me, I'm detached".
+// Views that embed views.Base inherit an Alive() method that returns
+// false once the view is removed from its parent group, which lets
+// long-lived gadgets clean themselves up automatically when their
+// host window closes.
+type Liveness interface {
+	Alive() bool
+}
+
 // Pulse fires Tick on any due Ticker. Returns true if at least one
-// returned redraw=true. The program loop calls this from its idle
-// path and uses the boolean to decide whether to flush a frame.
+// returned redraw=true. Tickers that report Alive()==false are pruned
+// before their interval is checked, so a closed window's gadgets stop
+// burning CPU.
 func Pulse() bool {
 	now := time.Now()
 	mu.Lock()
+	live := entries[:0]
 	due := make([]*entry, 0, len(entries))
 	for _, e := range entries {
+		if l, ok := e.t.(Liveness); ok && !l.Alive() {
+			continue
+		}
+		live = append(live, e)
 		if now.Sub(e.last) >= e.interval {
 			e.last = now
 			due = append(due, e)
 		}
 	}
+	entries = live
 	mu.Unlock()
 	any := false
 	for _, e := range due {

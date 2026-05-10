@@ -87,6 +87,7 @@ func (p *PopupMenu) Run(host *views.Group) int {
 		if done {
 			return idx
 		}
+		views.MarkDirty()
 	}
 }
 

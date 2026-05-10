@@ -156,31 +156,74 @@ func (m *MenuBar) findHotKey(letter byte) int {
 	return -1
 }
 
+// openSubmenu opens the top-level popup for items[idx]. While that
+// popup runs it may bubble a nav result asking to move to the previous
+// or next top-level menu — we loop here, closing the current popup and
+// opening the adjacent one, until the user either picks a command or
+// presses Esc (nav=0, cmd=0).
+//
+// Items without a submenu (rare in a real menu bar but legal) are
+// skipped during navigation so Left/Right always lands on something
+// that can open.
 func (m *MenuBar) openSubmenu(idx int) {
-	if idx < 0 || idx >= len(m.Menu.Items) {
-		return
-	}
-	it := m.Menu.Items[idx]
-	if it.Sub == nil {
-		return
-	}
 	if m.Owner == nil {
 		return
 	}
-	m.hotIndex = idx
+	idx = m.nextSubmenu(idx, 0)
+	if idx < 0 {
+		return
+	}
+	for {
+		it := m.Menu.Items[idx]
+		m.hotIndex = idx
 
-	// Position the popup directly under the menu-bar item.
-	x := 1
-	for i := 0; i < idx; i++ {
-		x += utf8.CStrDisplayWidth(" "+m.Menu.Items[i].Name+" ") + 1
+		x := 1
+		for i := 0; i < idx; i++ {
+			x += utf8.CStrDisplayWidth(" "+m.Menu.Items[i].Name+" ") + 1
+		}
+		mb := NewMenuBox(geom.Point{X: x, Y: 1}, it.Sub)
+		mb.topLevel = true
+		res := mb.runIn(m.Owner)
+		m.hotIndex = -1
+
+		if res.cmd != 0 {
+			ev := drivers.Event{What: consts.EvCommand, Command: res.cmd}
+			m.PutEvent(&ev)
+			return
+		}
+		if res.nav == 0 {
+			return
+		}
+		next := m.nextSubmenu(idx, res.nav)
+		if next < 0 || next == idx {
+			return
+		}
+		idx = next
 	}
-	mb := NewMenuBox(geom.Point{X: x, Y: 1}, it.Sub)
-	cmd := mb.runIn(m.Owner)
-	m.hotIndex = -1
-	if cmd != 0 {
-		ev := drivers.Event{What: consts.EvCommand, Command: cmd}
-		m.PutEvent(&ev)
+}
+
+// nextSubmenu finds the nearest item with a non-nil Sub, starting from
+// idx and stepping by dir (-1 / +1). With dir=0 it returns idx itself
+// if that item has a submenu, otherwise scans forward. Wraps around at
+// the ends. Returns -1 if no submenu items exist at all.
+func (m *MenuBar) nextSubmenu(idx, dir int) int {
+	n := len(m.Menu.Items)
+	if n == 0 {
+		return -1
 	}
+	if dir == 0 {
+		if idx >= 0 && idx < n && m.Menu.Items[idx].Sub != nil {
+			return idx
+		}
+		dir = 1
+	}
+	for tries := 0; tries < n; tries++ {
+		idx = (idx + dir + n) % n
+		if m.Menu.Items[idx].Sub != nil {
+			return idx
+		}
+	}
+	return -1
 }
 
 // hotkeyOf returns the byte after the first '~' in s, or 0 if none.

@@ -478,6 +478,7 @@ func showTabs(a *app.Application) {
 			}
 		}
 		d.HandleEvent(&ev)
+		views.MarkDirty()
 	}
 }
 

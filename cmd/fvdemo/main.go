@@ -44,6 +44,12 @@ func main() {
 		if dispatchWidget(a, cmd) {
 			return true
 		}
+		if dispatchApp(a, cmd) {
+			return true
+		}
+		if dispatchExtension(a, cmd) {
+			return true
+		}
 		switch cmd {
 		case cmAboutDemo:
 			showAbout(a)
@@ -109,8 +115,34 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 		menus.Separator(),
 		&menus.Item{Name: "E~x~it", Command: consts.CmQuitApp},
 	)
+	appsMenu := menus.NewMenu(
+		&menus.Item{Name: "~T~ext Editor", Command: cmAppEditor},
+		&menus.Item{Name: "Editor (Open ~F~ile...)", Command: cmAppEditorOpen},
+		&menus.Item{Name: "Editor + ~G~utter", Command: cmAppEditorWithGutter},
+		&menus.Item{Name: "Editor + ~S~yntax (Go)", Command: cmAppEditorSyntax},
+		menus.Separator(),
+		&menus.Item{Name: "~H~ex Editor", Command: cmAppHexEdit},
+		&menus.Item{Name: "Data Gri~d~", Command: cmAppGrid},
+		menus.Separator(),
+		&menus.Item{Name: "~L~og Viewer", Command: cmAppLogViewer},
+		&menus.Item{Name: "~M~arkdown View", Command: cmAppMarkdown},
+		&menus.Item{Name: "~F~uzzy Finder", Command: cmAppFuzzy},
+	)
+	systemMenu := menus.NewMenu(
+		&menus.Item{Name: "~U~ptime", Command: cmAppUptime},
+		&menus.Item{Name: "~C~PU Meter", Command: cmAppCPUMeter},
+		&menus.Item{Name: "CPU C~o~res", Command: cmAppCPUCores},
+		&menus.Item{Name: "~R~AM", Command: cmAppRAM},
+		&menus.Item{Name: "~D~isk Usage", Command: cmAppDisk},
+		&menus.Item{Name: "~B~attery", Command: cmAppBattery},
+		&menus.Item{Name: "~N~etwork", Command: cmAppNetwork},
+		&menus.Item{Name: "~P~rocesses", Command: cmAppProcess},
+	)
 	testMenu := menus.NewMenu(
 		&menus.Item{Name: "~N~ew Window", Command: cmNewWindow},
+		menus.Separator(),
+		&menus.Item{Name: "~A~pps", Sub: appsMenu},
+		&menus.Item{Name: "~S~ystem", Sub: systemMenu},
 		menus.Separator(),
 		&menus.Item{Name: "~D~ialog with all controls", Command: cmDialogDemo},
 		&menus.Item{Name: "~L~ist Box", Command: cmListBoxDemo},

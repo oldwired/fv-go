@@ -267,6 +267,22 @@ func parseCSIKey(params string, final, priv byte) Event {
 		mods = decodeMods(num2)
 	}
 
+	// Modified F1-F4: xterm with modifyFunctionKeys=2 emits CSI 1;m P/Q/R/S
+	// (this is the only form a modifier can ride with for the SS3 family).
+	// Without a modifier these come through parseSS3 as ESC O P/Q/R/S.
+	if num1 == 1 && num2 > 1 {
+		switch final {
+		case 'P':
+			return Event{Kind: EventKey, Key: KeyF1, Mods: mods}
+		case 'Q':
+			return Event{Kind: EventKey, Key: KeyF2, Mods: mods}
+		case 'R':
+			return Event{Kind: EventKey, Key: KeyF3, Mods: mods}
+		case 'S':
+			return Event{Kind: EventKey, Key: KeyF4, Mods: mods}
+		}
+	}
+
 	switch final {
 	case 'A':
 		return Event{Kind: EventKey, Key: KeyUp, Mods: mods}

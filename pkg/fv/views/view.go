@@ -379,6 +379,12 @@ func (b *Base) ScreenOrigin() (int, int) {
 	return dx + b.Origin.X, dy + b.Origin.Y
 }
 
+// Alive reports whether this view is still attached to a parent
+// group. Group.Delete clears Owner, so detached views report false —
+// which lets the anim package's Pulse drop tickers whose view has
+// been removed (e.g., a closed gadget window).
+func (b *Base) Alive() bool { return b.Owner != nil }
+
 // GetColor maps a color index through the view's owner chain palette.
 // For now this is the identity unless a Group overrides MapColor.
 func (b *Base) GetColor(color uint16) uint16 {

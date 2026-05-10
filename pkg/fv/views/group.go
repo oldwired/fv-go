@@ -128,6 +128,11 @@ func (g *Group) InsertBefore(v, target View) {
 	}
 	v.BaseView().State |= consts.SfExposed
 	g.refreshActive()
+	// Inserting a child changes the visible tree — flag the program dirty
+	// so the next idle pass actually paints it. Without this, modal popups
+	// (MenuBox, dialogs, FuzzyFinder, …) opened between events never get
+	// their first draw, so the user's first keypress appears to do nothing.
+	MarkDirty()
 }
 
 // refreshActive sets SfActive on the currently-focused child and
@@ -144,7 +149,9 @@ func (g *Group) refreshActive() {
 	}
 }
 
-// Delete removes v. No-op if v isn't in this group.
+// Delete removes v. No-op if v isn't in this group. Also clears
+// v.Owner so any "am I still alive?" checks (animation tickers,
+// async callbacks) can detect that the view is detached and unhook.
 func (g *Group) Delete(v View) {
 	for i, c := range g.Children {
 		if c == v {
@@ -157,6 +164,8 @@ func (g *Group) Delete(v View) {
 				}
 			}
 			g.refreshActive()
+			c.BaseView().Owner = nil
+			MarkDirty()
 			return
 		}
 	}
@@ -418,6 +427,7 @@ func (g *Group) ExecView(v View) uint16 {
 			}
 		}
 		v.HandleEvent(&ev)
+		MarkDirty()
 		// Pick up EndModal even when v's concrete type is *Dialog or
 		// *Window — both inherit EndStateValue via Group embedding.
 		// Direct *Group type assertion misses those.
@@ -439,12 +449,14 @@ func (g *Group) ExecView(v View) uint16 {
 	}
 }
 
-// pumpFn / waitFn are set by app.NewProgram so modal loops (ExecView,
-// MenuBox.Run) can drive the same idle-redraw + blocking-input cycle
-// the main Program.Run uses, without owning the goroutine.
+// pumpFn / waitFn / dirtyFn are set by app.NewProgram so modal loops
+// (ExecView, MenuBox.Run, popupmenu.Run, fuzzyfinder.Run, etc.) can
+// drive the same idle-redraw + blocking-input cycle the main
+// Program.Run uses, without owning the goroutine.
 var (
-	pumpFn func() // drain term events, redraw, flush; non-blocking
-	waitFn func() // block until at least one event is queued
+	pumpFn  func() // drain term events, redraw, flush; non-blocking
+	waitFn  func() // block until at least one event is queued
+	dirtyFn func() // mark the program dirty so the next idle redraws
 )
 
 // SetPump installs the idle callback (drain+draw+flush).
@@ -452,6 +464,18 @@ func SetPump(f func()) { pumpFn = f }
 
 // SetWait installs the blocking-event-wait callback.
 func SetWait(f func()) { waitFn = f }
+
+// SetMarkDirty installs the mark-dirty callback.
+func SetMarkDirty(f func()) { dirtyFn = f }
+
+// MarkDirty asks the program to repaint on the next idle pass.
+// Modal loops call this after handling each event so the
+// pump+pulse+dirty triad correctly registers "state has changed".
+func MarkDirty() {
+	if dirtyFn != nil {
+		dirtyFn()
+	}
+}
 
 func captureModalCmd(ev *drivers.Event) uint16 {
 	if ev.What != consts.EvCommand {

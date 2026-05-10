@@ -167,6 +167,7 @@ func Show(host *views.Group, mode Mode, title, startDir, pattern string) (string
 			}
 		}
 		d.HandleEvent(&ev)
+		views.MarkDirty()
 	}
 }
 

@@ -18,8 +18,18 @@ import (
 type MenuBox struct {
 	views.Base
 
-	Menu    *Menu
-	current int
+	Menu     *Menu
+	current  int
+	topLevel bool // true when this popup is directly under the menu bar; controls Left/Right cycling vs. close-one-level
+}
+
+// menuResult is what runIn returns to its caller. Exactly one of (cmd,
+// nav) is non-zero, or both are zero meaning "cancelled at this level".
+// Nav is only emitted by a top-level popup — nested levels swallow
+// Left/Right into "close one level" and "open nested" respectively.
+type menuResult struct {
+	cmd uint16
+	nav int // -1=move to previous top-level menu, +1=move to next
 }
 
 // NewMenuBox builds a popup menu at the given screen position.
@@ -58,16 +68,16 @@ func menuBoxSize(m *Menu) (w, h int) {
 }
 
 // runIn opens the popup as a child of host, then runs a modal-style
-// loop until the user picks an item or cancels. Returns the chosen
-// command or 0.
-func (mb *MenuBox) runIn(host *views.Group) uint16 {
+// loop until the user picks an item or cancels. Returns the result —
+// see menuResult.
+func (mb *MenuBox) runIn(host *views.Group) menuResult {
 	mb.current = 0
 	host.Insert(mb)
 	defer host.Delete(mb)
 
 	q := views.GetEventQueue()
 	if q == nil {
-		return 0
+		return menuResult{}
 	}
 	for {
 		if pump := views.GetPump(); pump != nil {
@@ -80,16 +90,17 @@ func (mb *MenuBox) runIn(host *views.Group) uint16 {
 			}
 			continue
 		}
-		if cmd, done := mb.handleKey(&ev); done {
-			return cmd
+		if res, done := mb.handleKey(&ev); done {
+			return res
 		}
+		views.MarkDirty()
 	}
 }
 
-// handleKey processes one event. Returns (cmd, true) when the popup
+// handleKey processes one event. Returns (result, true) when the popup
 // should close. Items with a non-nil Sub recursively open a nested
 // MenuBox to the right of the current row.
-func (mb *MenuBox) handleKey(ev *drivers.Event) (uint16, bool) {
+func (mb *MenuBox) handleKey(ev *drivers.Event) (menuResult, bool) {
 	if ev.What == consts.EvMouseDown {
 		local := mb.MakeLocal(ev.Where)
 		if local.Y >= 1 && local.Y-1 < len(mb.Menu.Items) &&
@@ -99,35 +110,47 @@ func (mb *MenuBox) handleKey(ev *drivers.Event) (uint16, bool) {
 				mb.current = local.Y - 1
 				return mb.activate()
 			}
-			return 0, false
+			return menuResult{}, false
 		}
 		// Click outside the popup → cancel.
-		return 0, true
+		return menuResult{}, true
 	}
 	if ev.What != consts.EvKeyDown {
-		return 0, false
+		return menuResult{}, false
 	}
 	switch ev.KeyCode {
 	case consts.KbEsc:
-		return 0, true
+		return menuResult{}, true
 	case consts.KbUp:
 		mb.move(-1)
-		return 0, false
+		return menuResult{}, false
 	case consts.KbDown:
 		mb.move(1)
-		return 0, false
+		return menuResult{}, false
 	case consts.KbHome:
 		mb.current = 0
-		return 0, false
+		return menuResult{}, false
 	case consts.KbEnd:
 		mb.current = len(mb.Menu.Items) - 1
-		return 0, false
+		return menuResult{}, false
+	case consts.KbLeft:
+		// Top-level popup: signal "open the previous top-level menu".
+		// Nested popup: close one level (parent loop resumes / re-displays).
+		if mb.topLevel {
+			return menuResult{nav: -1}, true
+		}
+		return menuResult{}, true
 	case consts.KbRight:
-		// Right-arrow opens a submenu but otherwise does nothing.
+		// If the focused item is a submenu, open it regardless of level.
 		if it := mb.activeItem(); it != nil && it.IsSubmenu() {
 			return mb.activate()
 		}
-		return 0, false
+		// Otherwise, top-level cycles to the next top-level menu.
+		// Nested popups ignore Right on a leaf.
+		if mb.topLevel {
+			return menuResult{nav: +1}, true
+		}
+		return menuResult{}, false
 	case consts.KbEnter:
 		return mb.activate()
 	}
@@ -143,37 +166,44 @@ func (mb *MenuBox) handleKey(ev *drivers.Event) (uint16, bool) {
 			return mb.activate()
 		}
 	}
-	return 0, false
+	return menuResult{}, false
 }
 
 // activate is the "user picked the focused item" path — fires a
 // command for leaf items, opens a nested MenuBox for submenus.
-func (mb *MenuBox) activate() (uint16, bool) {
+func (mb *MenuBox) activate() (menuResult, bool) {
 	it := mb.activeItem()
 	if it == nil || it.Disabled || it.IsSeparator() {
-		return 0, false
+		return menuResult{}, false
 	}
 	if it.IsSubmenu() {
-		cmd := mb.openNestedSubmenu(mb.current)
-		if cmd != 0 {
-			return cmd, true
+		res := mb.openNestedSubmenu(mb.current)
+		// If the nested popup picked a command, the chain unwinds.
+		// Nav signals from nested levels are absorbed here (Left in a
+		// nested submenu just closes that level — the parent loop
+		// resumes with our popup still visible).
+		if res.cmd != 0 {
+			return res, true
 		}
-		return 0, false
+		return menuResult{}, false
 	}
-	return it.Command, true
+	return menuResult{cmd: it.Command}, true
 }
 
 // openNestedSubmenu opens a MenuBox for items[idx].Sub anchored to the
 // right of this popup at the row of the parent item, runs its modal
 // loop, and returns whatever command came back.
-func (mb *MenuBox) openNestedSubmenu(idx int) uint16 {
+func (mb *MenuBox) openNestedSubmenu(idx int) menuResult {
 	if mb.Owner == nil {
-		return 0
+		return menuResult{}
 	}
 	parent := mb.Menu.Items[idx]
 	x := mb.Origin.X + mb.Size.X - 1
 	y := mb.Origin.Y + idx + 1
 	sub := NewMenuBox(geom.Point{X: x, Y: y}, parent.Sub)
+	// Nested popups are never top-level: their Left closes back to us,
+	// their Right opens deeper but does not cycle top-level.
+	sub.topLevel = false
 	return sub.runIn(mb.Owner)
 }
 
