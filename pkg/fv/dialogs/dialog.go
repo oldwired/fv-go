@@ -21,13 +21,21 @@ type Dialog struct {
 // NewDialog builds a Dialog with title.
 func NewDialog(bounds geom.Rect, title string) *Dialog {
 	d := &Dialog{}
+	InitDialog(d, bounds, title)
+	return d
+}
+
+// InitDialog initializes d in place. Use this when embedding Dialog
+// by value in a larger type — copying the result of NewDialog would
+// orphan the inserted Frame's Owner pointer (it would still point to
+// the temporary Dialog NewDialog allocated).
+func InitDialog(d *Dialog, bounds geom.Rect, title string) {
 	views.InitWindow(&d.Window, bounds, title, consts.WnNoNumber)
 	d.SetSelf(d)
 	d.Options |= consts.OfCentered
 	// Dialogs don't grow with the desktop — they keep their constructed
 	// size unless the caller explicitly resizes.
 	d.GrowMode = 0
-	return d
 }
 
 // GetTypeID for serial registry.

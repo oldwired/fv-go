@@ -38,13 +38,21 @@ func (mb *MenuBox) GetTypeID() string { return "menubox" }
 
 func menuBoxSize(m *Menu) (w, h int) {
 	w = 0
+	hasSubmenu := false
 	for _, it := range m.Items {
 		c := utf8.CStrDisplayWidth(it.Name)
 		if c > w {
 			w = c
 		}
+		if it.IsSubmenu() {
+			hasSubmenu = true
+		}
 	}
-	w += 4 // borders + padding
+	// Borders + left padding (+ extra room for the "▶" submenu marker).
+	w += 4
+	if hasSubmenu {
+		w += 2
+	}
 	h = len(m.Items) + 2
 	return
 }
@@ -79,18 +87,17 @@ func (mb *MenuBox) runIn(host *views.Group) uint16 {
 }
 
 // handleKey processes one event. Returns (cmd, true) when the popup
-// should close.
+// should close. Items with a non-nil Sub recursively open a nested
+// MenuBox to the right of the current row.
 func (mb *MenuBox) handleKey(ev *drivers.Event) (uint16, bool) {
 	if ev.What == consts.EvMouseDown {
-		// Map screen coords to a row inside the box. Rows 1..len(Items)
-		// correspond to items; clicks on the border or outside dismiss.
 		local := mb.MakeLocal(ev.Where)
 		if local.Y >= 1 && local.Y-1 < len(mb.Menu.Items) &&
 			local.X > 0 && local.X < mb.Size.X-1 {
 			it := mb.Menu.Items[local.Y-1]
 			if !it.IsSeparator() && !it.Disabled {
 				mb.current = local.Y - 1
-				return it.Command, true
+				return mb.activate()
 			}
 			return 0, false
 		}
@@ -115,18 +122,59 @@ func (mb *MenuBox) handleKey(ev *drivers.Event) (uint16, bool) {
 	case consts.KbEnd:
 		mb.current = len(mb.Menu.Items) - 1
 		return 0, false
-	case consts.KbEnter:
-		if it := mb.activeItem(); it != nil && !it.Disabled && !it.IsSeparator() {
-			return it.Command, true
+	case consts.KbRight:
+		// Right-arrow opens a submenu but otherwise does nothing.
+		if it := mb.activeItem(); it != nil && it.IsSubmenu() {
+			return mb.activate()
 		}
 		return 0, false
+	case consts.KbEnter:
+		return mb.activate()
 	}
 	if ev.UnicodeChar != 0 {
 		if it := mb.matchHotkey(byte(ev.UnicodeChar)); it != nil {
-			return it.Command, true
+			// Move current onto the matched item so activate() sees it.
+			for i, x := range mb.Menu.Items {
+				if x == it {
+					mb.current = i
+					break
+				}
+			}
+			return mb.activate()
 		}
 	}
 	return 0, false
+}
+
+// activate is the "user picked the focused item" path — fires a
+// command for leaf items, opens a nested MenuBox for submenus.
+func (mb *MenuBox) activate() (uint16, bool) {
+	it := mb.activeItem()
+	if it == nil || it.Disabled || it.IsSeparator() {
+		return 0, false
+	}
+	if it.IsSubmenu() {
+		cmd := mb.openNestedSubmenu(mb.current)
+		if cmd != 0 {
+			return cmd, true
+		}
+		return 0, false
+	}
+	return it.Command, true
+}
+
+// openNestedSubmenu opens a MenuBox for items[idx].Sub anchored to the
+// right of this popup at the row of the parent item, runs its modal
+// loop, and returns whatever command came back.
+func (mb *MenuBox) openNestedSubmenu(idx int) uint16 {
+	if mb.Owner == nil {
+		return 0
+	}
+	parent := mb.Menu.Items[idx]
+	x := mb.Origin.X + mb.Size.X - 1
+	y := mb.Origin.Y + idx + 1
+	sub := NewMenuBox(geom.Point{X: x, Y: y}, parent.Sub)
+	return sub.runIn(mb.Owner)
 }
 
 func (mb *MenuBox) activeItem() *Item {
@@ -200,6 +248,9 @@ func (mb *MenuBox) Draw() {
 			screen.DrawCell(row, w-1, "┤", frame)
 		} else {
 			screen.DrawCStr(row, 2, it.Name, n, hk)
+			if it.IsSubmenu() && w >= 4 {
+				screen.DrawCell(row, w-2, "▶", n)
+			}
 		}
 		if !it.IsSeparator() {
 			screen.DrawCell(row, w-1, "│", frame)

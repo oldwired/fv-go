@@ -41,6 +41,9 @@ func main() {
 	a.SetStatusLine(buildStatusLine(geom.NewRect(0, rows-1, cols, rows)))
 
 	a.OnCommand = func(cmd uint16, ev *drivers.Event) bool {
+		if dispatchWidget(a, cmd) {
+			return true
+		}
 		switch cmd {
 		case cmAboutDemo:
 			showAbout(a)
@@ -132,8 +135,56 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 	return menus.NewMenuBar(bounds, menus.NewMenu(
 		&menus.Item{Name: "~F~ile", Sub: fileMenu},
 		&menus.Item{Name: "~T~est", Sub: testMenu},
+		&menus.Item{Name: "Widg~e~ts", Sub: buildWidgetsMenu()},
 		&menus.Item{Name: "~W~indow", Sub: windowMenu},
 	))
+}
+
+func buildWidgetsMenu() *menus.Menu {
+	indicators := menus.NewMenu(
+		&menus.Item{Name: "~P~rogressBar", Command: cmWidgetProgressBar},
+		&menus.Item{Name: "~S~pinner", Command: cmWidgetSpinner},
+		&menus.Item{Name: "~T~ask Progress", Command: cmWidgetTaskProgress},
+		&menus.Item{Name: "~V~U Meter", Command: cmWidgetVUMeter},
+		&menus.Item{Name: "Spar~k~line", Command: cmWidgetSparkline},
+		&menus.Item{Name: "~B~ar Chart", Command: cmWidgetBarChart},
+		&menus.Item{Name: "~L~ED Digits", Command: cmWidgetLEDDigits},
+		&menus.Item{Name: "~M~arquee", Command: cmWidgetMarquee},
+		&menus.Item{Name: "Bl~i~nk", Command: cmWidgetBlink},
+		&menus.Item{Name: "B~r~eadcrumb", Command: cmWidgetBreadcrumb},
+	)
+	inputs := menus.NewMenu(
+		&menus.Item{Name: "~C~ombo Box", Command: cmWidgetComboBox},
+		&menus.Item{Name: "C~h~eck List", Command: cmWidgetCheckList},
+		&menus.Item{Name: "~T~oggle Switch", Command: cmWidgetToggle},
+		&menus.Item{Name: "Input ~L~ong", Command: cmWidgetInputLong},
+		&menus.Item{Name: "Tree ~V~iew", Command: cmWidgetTreeView},
+		&menus.Item{Name: "C~a~lendar", Command: cmWidgetCalendar},
+		&menus.Item{Name: "Color ~S~elector", Command: cmWidgetColorSel},
+	)
+	layout := menus.NewMenu(
+		&menus.Item{Name: "Ta~b~s", Command: cmWidgetTabs},
+		&menus.Item{Name: "~A~ccordion", Command: cmWidgetAccordion},
+		&menus.Item{Name: "~T~oolBar", Command: cmWidgetToolBar},
+		&menus.Item{Name: "~C~olored Text", Command: cmWidgetColorTxt},
+		&menus.Item{Name: "AS~C~II Chart", Command: cmWidgetAsciiTab},
+	)
+	popups := menus.NewMenu(
+		&menus.Item{Name: "~N~otification", Command: cmWidgetNotification},
+		&menus.Item{Name: "Tool~t~ip", Command: cmWidgetTooltip},
+		&menus.Item{Name: "~P~opup Menu", Command: cmWidgetPopupMenu},
+		&menus.Item{Name: "Timed ~D~ialog", Command: cmWidgetTimedDlg},
+		menus.Separator(),
+		&menus.Item{Name: "File ~O~pen...", Command: cmWidgetFileOpen},
+		&menus.Item{Name: "File ~S~ave...", Command: cmWidgetFileSave},
+		&menus.Item{Name: "Change Di~r~...", Command: cmWidgetChangeDir},
+	)
+	return menus.NewMenu(
+		&menus.Item{Name: "~I~ndicators", Sub: indicators},
+		&menus.Item{Name: "I~n~puts", Sub: inputs},
+		&menus.Item{Name: "~L~ayout", Sub: layout},
+		&menus.Item{Name: "~P~opups", Sub: popups},
+	)
 }
 
 func buildStatusLine(bounds geom.Rect) *menus.StatusLine {

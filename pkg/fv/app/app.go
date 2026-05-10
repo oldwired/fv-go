@@ -6,6 +6,9 @@
 package app
 
 import (
+	"time"
+
+	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/clipboard"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
@@ -188,12 +191,14 @@ func (p *Program) Run() {
 	}
 }
 
-// idle drains queued term events into the FV queue, then redraws the
-// view tree and flushes the backend. Called both by Run between events
-// and by modal loops (MenuBox.Run, Group.ExecView) that need a redraw
-// while they wait for input.
+// idle drains queued term events into the FV queue, advances any
+// registered animation tickers, then redraws the view tree and flushes
+// the backend. Called both by Run between events and by modal loops
+// (MenuBox.Run, Group.ExecView) that need a redraw while they wait
+// for input.
 func (p *Program) idle() {
 	p.pump()
+	anim.Pulse()
 	p.draw()
 	_ = p.backend.Flush()
 }
@@ -213,9 +218,28 @@ func (p *Program) pump() {
 }
 
 // waitOne blocks until at least one term event is read and pushed onto
-// the FV queue. Used by ExecView / MenuBox.runIn when their queue is
-// empty between input events.
+// the FV queue, or until the next animation pulse is due. Used by
+// ExecView / MenuBox.runIn when their queue is empty between input
+// events. With no animations registered the wait is unbounded; with
+// at least one ticker it caps at the smallest interval so animations
+// stay responsive while idle.
 func (p *Program) waitOne() {
+	if d := anim.MinInterval(); d > 0 {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case te, alive := <-p.backend.Events():
+			if !alive {
+				return
+			}
+			if e := drivers.FromTermEvent(te); e.What != 0 {
+				p.queue.Put(e)
+			}
+		case <-timer.C:
+			// Fall through; idle() will fire anim.Pulse on the next pass.
+		}
+		return
+	}
 	te, alive := <-p.backend.Events()
 	if !alive {
 		return

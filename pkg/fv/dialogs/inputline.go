@@ -5,6 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
+	"github.com/oldwired/fv-go/pkg/fv/history"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/validators"
@@ -12,12 +13,16 @@ import (
 )
 
 // InputLine is a single-line text editor with selection, an optional
-// validator, and clipboard integration.
+// validator, optional history recall, and clipboard integration.
 //
 // Selection: SelAnchor is the rune index where the current selection
 // begins; CurPos is its other end. SelAnchor < 0 means "no selection".
 // Selection grows when the user holds Shift while moving the caret;
 // any non-Shift navigation collapses it.
+//
+// History: when HistoryID is non-zero, Up/Down recall past entries
+// from the package-level history store, and Commit() pushes the
+// current value as a new entry.
 type InputLine struct {
 	views.Base
 
@@ -27,6 +32,8 @@ type InputLine struct {
 	FirstPos  int // leftmost displayed rune index
 	SelAnchor int // -1 = no active selection
 	Validator validators.Validator
+	HistoryID byte
+	histPos   int // -1 = at the live edit; >=0 = browsing
 }
 
 // NewInputLine builds an InputLine that holds up to maxLen runes.
@@ -35,11 +42,42 @@ func NewInputLine(bounds geom.Rect, maxLen int) *InputLine {
 		Base:      views.NewBase(bounds),
 		MaxLen:    maxLen,
 		SelAnchor: -1,
+		histPos:   -1,
 	}
 	il.SetSelf(il)
 	il.Options |= consts.OfSelectable | consts.OfFirstClick
 	il.State |= consts.SfCursorVis
 	return il
+}
+
+// Commit pushes the current text to history (if HistoryID != 0). Call
+// from the parent dialog's OK handler to record the entry.
+func (il *InputLine) Commit() {
+	if il.HistoryID != 0 {
+		history.Add(il.HistoryID, string(il.Data))
+	}
+}
+
+// recallFromHistory replaces the buffer with the n-th entry of the
+// history list. n=-1 returns to the live edit (an empty string).
+func (il *InputLine) recallFromHistory(step int) {
+	if il.HistoryID == 0 {
+		return
+	}
+	list := history.Get(il.HistoryID)
+	if len(list) == 0 {
+		return
+	}
+	il.histPos += step
+	if il.histPos < 0 {
+		il.histPos = -1
+		il.SetText("")
+		return
+	}
+	if il.histPos >= len(list) {
+		il.histPos = len(list) - 1
+	}
+	il.SetText(list[il.histPos])
 }
 
 // GetTypeID for serial registry.
@@ -166,7 +204,9 @@ func (il *InputLine) HandleEvent(ev *drivers.Event) {
 			il.SelAnchor = -1
 		}
 		if il.Owner != nil {
-			il.Owner.Focus(il)
+			// Self() returns the concrete subclass pointer (e.g.
+			// *InputLong) the parent group actually stores.
+			il.Owner.Focus(il.Self())
 		}
 		il.Draw()
 		il.ClearEvent(ev)
@@ -233,6 +273,18 @@ func (il *InputLine) HandleEvent(ev *drivers.Event) {
 		il.CurPos = len(il.Data)
 	case consts.KbCtrlA:
 		il.SelectAll()
+	case consts.KbUp:
+		if il.HistoryID != 0 {
+			il.recallFromHistory(+1)
+			il.ClearEvent(ev)
+			return
+		}
+	case consts.KbDown:
+		if il.HistoryID != 0 {
+			il.recallFromHistory(-1)
+			il.ClearEvent(ev)
+			return
+		}
 	case consts.KbBack:
 		if !il.deleteSelection() && il.CurPos > 0 {
 			il.Data = append(il.Data[:il.CurPos-1], il.Data[il.CurPos:]...)

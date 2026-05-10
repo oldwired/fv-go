@@ -377,9 +377,23 @@ func (g *Group) ExecView(v View) uint16 {
 	if globalQueue == nil {
 		return consts.CmCancel
 	}
+	type endStater interface {
+		EndStateValue() uint16
+		ClearEndState()
+	}
 	for {
 		if pumpFn != nil {
 			pumpFn()
+		}
+		// Check for an EndModal request that came from a non-event
+		// path (animation tick, asynchronous broadcast). Without this,
+		// timer-driven dialogs would only close when the user happens
+		// to press a key.
+		if es, ok := v.(endStater); ok {
+			if cmd := es.EndStateValue(); cmd != 0 {
+				es.ClearEndState()
+				return cmd
+			}
 		}
 		ev, ok := globalQueue.Get()
 		if !ok {

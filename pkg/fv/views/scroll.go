@@ -211,6 +211,12 @@ type ListViewer struct {
 	HScroll *ScrollBar
 	VScroll *ScrollBar
 	GetText func(item int) string // populated by subclasses
+
+	// SingleClickSelects, when true, fires cmListItemSelected on a
+	// single click instead of waiting for a double-click. Useful for
+	// directory lists in file dialogs and similar "pick instantly"
+	// patterns.
+	SingleClickSelects bool
 }
 
 // NewListViewer constructs a ListViewer. cols is the column layout; for
@@ -306,9 +312,25 @@ func (l *ListViewer) Draw() {
 }
 
 // HandleEvent: arrows / pageup / pagedown / home / end / Enter, plus
-// click-to-focus and double-click to select.
+// click-to-focus, double-click to select, and mouse-wheel to scroll.
 func (l *ListViewer) HandleEvent(ev *drivers.Event) {
 	if ev.What == consts.EvMouseDown {
+		// Wheel events come through as mouse-down with the wheel
+		// button bits set (consts.MbScrollWheelUp / Down). Translate
+		// to focus movement without firing cmListItemSelected, even
+		// when SingleClickSelects is on — otherwise scrolling a
+		// directory list would navigate into whatever ends up under
+		// the cursor.
+		if ev.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0 {
+			step := 3
+			if ev.Buttons&consts.MbScrollWheelUp != 0 {
+				l.FocusItem(l.Focused - step)
+			} else {
+				l.FocusItem(l.Focused + step)
+			}
+			l.ClearEvent(ev)
+			return
+		}
 		local := l.MakeLocal(ev.Where)
 		top := 0
 		if l.VScroll != nil {
@@ -320,8 +342,8 @@ func (l *ListViewer) HandleEvent(ev *drivers.Event) {
 			if l.Owner != nil {
 				l.Owner.Focus(l.self)
 			}
-			if ev.DoubleClk {
-				notify := drivers.Event{What: consts.EvBroadcast, Command: consts.CmListItemSelected, InfoPtr: l}
+			if ev.DoubleClk || l.SingleClickSelects {
+				notify := drivers.Event{What: consts.EvBroadcast, Command: consts.CmListItemSelected, InfoPtr: l.Self()}
 				l.PutEvent(&notify)
 			}
 			l.ClearEvent(ev)
@@ -355,7 +377,7 @@ func (l *ListViewer) HandleEvent(ev *drivers.Event) {
 			l.ClearEvent(ev)
 			return
 		case consts.KbEnter:
-			notify := drivers.Event{What: consts.EvBroadcast, Command: consts.CmListItemSelected, InfoPtr: l}
+			notify := drivers.Event{What: consts.EvBroadcast, Command: consts.CmListItemSelected, InfoPtr: l.Self()}
 			l.PutEvent(&notify)
 			l.ClearEvent(ev)
 			return
