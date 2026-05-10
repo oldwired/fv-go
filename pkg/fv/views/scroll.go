@@ -305,8 +305,29 @@ func (l *ListViewer) Draw() {
 	}
 }
 
-// HandleEvent: arrows / pageup / pagedown / home / end / Enter.
+// HandleEvent: arrows / pageup / pagedown / home / end / Enter, plus
+// click-to-focus and double-click to select.
 func (l *ListViewer) HandleEvent(ev *drivers.Event) {
+	if ev.What == consts.EvMouseDown {
+		local := l.MakeLocal(ev.Where)
+		top := 0
+		if l.VScroll != nil {
+			top = l.VScroll.Value
+		}
+		idx := top + local.Y
+		if idx >= 0 && idx < l.Range {
+			l.FocusItem(idx)
+			if l.Owner != nil {
+				l.Owner.Focus(l.self)
+			}
+			if ev.DoubleClk {
+				notify := drivers.Event{What: consts.EvBroadcast, Command: consts.CmListItemSelected, InfoPtr: l}
+				l.PutEvent(&notify)
+			}
+			l.ClearEvent(ev)
+		}
+		return
+	}
 	if ev.What == consts.EvKeyDown {
 		switch ev.KeyCode {
 		case consts.KbUp:

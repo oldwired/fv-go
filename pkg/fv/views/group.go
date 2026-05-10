@@ -127,6 +127,21 @@ func (g *Group) InsertBefore(v, target View) {
 		v.BaseView().State |= consts.SfSelected | consts.SfFocused
 	}
 	v.BaseView().State |= consts.SfExposed
+	g.refreshActive()
+}
+
+// refreshActive sets SfActive on the currently-focused child and
+// clears it from every other child. Frame.Draw walks up the owner
+// chain looking for SfActive to decide between active (double-line)
+// and passive (single-line) rendering.
+func (g *Group) refreshActive() {
+	for i, c := range g.Children {
+		if i == g.current {
+			c.BaseView().State |= consts.SfActive
+		} else {
+			c.BaseView().State &^= consts.SfActive
+		}
+	}
 }
 
 // Delete removes v. No-op if v isn't in this group.
@@ -141,6 +156,7 @@ func (g *Group) Delete(v View) {
 					g.Children[0].BaseView().State |= consts.SfSelected
 				}
 			}
+			g.refreshActive()
 			return
 		}
 	}
@@ -158,6 +174,7 @@ func (g *Group) MakeFirst(v View) {
 			g.Children = append(g.Children[:i], g.Children[i+1:]...)
 			g.Children = append(g.Children, v)
 			g.current = len(g.Children) - 1
+			g.refreshActive()
 			return
 		}
 	}
@@ -177,6 +194,7 @@ func (g *Group) Focus(v View) {
 				g.current = i
 			}
 			v.BaseView().State |= consts.SfSelected | consts.SfFocused
+			g.refreshActive()
 			return
 		}
 	}

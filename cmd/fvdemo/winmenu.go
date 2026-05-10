@@ -200,3 +200,18 @@ func closeAll(a *app.Application) {
 		w.Close()
 	}
 }
+
+// selectWindowNum brings the Nth window forward, by Window.Number().
+// Used by the Alt+0..9 shortcut.
+func selectWindowNum(a *app.Application, n int) {
+	if n == 0 {
+		return
+	}
+	for _, w := range desktopWindows(a) {
+		if w.Number() == n {
+			a.Desktop.MakeFirst(w)
+			a.Desktop.Focus(w)
+			return
+		}
+	}
+}

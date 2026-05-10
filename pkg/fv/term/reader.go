@@ -3,7 +3,10 @@ package term
 import (
 	"errors"
 	"io"
+	"time"
 	"unicode/utf8"
+
+	"github.com/oldwired/fv-go/pkg/fv/geom"
 )
 
 // reader incrementally consumes bytes from the tty and emits Events.
@@ -29,11 +32,22 @@ type reader struct {
 	scan     []byte // unconsumed bytes from previous Read
 	paste    bool
 	pasteBuf []byte
+
+	// Double-click tracking. A press is "double" if the same button
+	// is pressed within doubleClickWindow at the same cell as the
+	// previous press.
+	lastClickAt      time.Time
+	lastClickButtons byte
+	lastClickWhere   geom.Point
 }
 
 func newReader(in io.Reader) *reader {
 	return &reader{in: in, buf: make([]byte, 4096)}
 }
+
+// doubleClickWindow is how close in time two presses must be to count
+// as a double-click. Standard GUI choice; tcell uses 500ms.
+const doubleClickWindow = 400 * time.Millisecond
 
 // Next blocks until the underlying reader yields bytes, then returns
 // every Event the parser can extract from what it has. Returns an error
@@ -192,14 +206,22 @@ func (r *reader) parseCSI() (Event, int, bool) {
 	}
 	// Mouse SGR-1006: ESC [ < b ; x ; y M/m
 	if priv == '<' && (final == 'M' || final == 'm') {
-		return parseSGRMouse(params, final == 'M', consumed)
+		ev, n, ok := parseSGRMouse(params, final == 'M', consumed)
+		if ok && ev.Kind == EventMouse {
+			r.maybeMarkDouble(&ev)
+		}
+		return ev, n, ok
 	}
 	// Mouse X10: ESC [ M b x y  (we may not have all bytes yet)
 	if priv == 0 && params == "" && final == 'M' {
 		if len(r.scan) < 6 {
 			return Event{}, 0, false
 		}
-		return parseX10Mouse(r.scan[3], r.scan[4], r.scan[5]), 6, true
+		ev := parseX10Mouse(r.scan[3], r.scan[4], r.scan[5])
+		if ev.Kind == EventMouse {
+			r.maybeMarkDouble(&ev)
+		}
+		return ev, 6, true
 	}
 
 	return parseCSIKey(params, final, priv), consumed, true
@@ -339,6 +361,29 @@ func decodeMods(n int) ModBits {
 		mods |= ModCtrl
 	}
 	return mods
+}
+
+// maybeMarkDouble flags ev.Mouse.Double=true if it's a press of the
+// same button at the same cell as the previous tracked press, within
+// doubleClickWindow. Updates the tracking state for the next call.
+func (r *reader) maybeMarkDouble(ev *Event) {
+	if !ev.Mouse.Pressed || ev.Mouse.Motion || ev.Mouse.Buttons == 0 {
+		return
+	}
+	now := time.Now()
+	same := ev.Mouse.Buttons == r.lastClickButtons &&
+		ev.Mouse.Where == r.lastClickWhere
+	if same && !r.lastClickAt.IsZero() && now.Sub(r.lastClickAt) <= doubleClickWindow {
+		ev.Mouse.Double = true
+		// Reset so triple-click doesn't double again.
+		r.lastClickAt = time.Time{}
+		r.lastClickButtons = 0
+		r.lastClickWhere = geom.Point{}
+		return
+	}
+	r.lastClickAt = now
+	r.lastClickButtons = ev.Mouse.Buttons
+	r.lastClickWhere = ev.Mouse.Where
 }
 
 func parseSGRMouse(params string, pressed bool, consumed int) (Event, int, bool) {

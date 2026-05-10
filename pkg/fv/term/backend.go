@@ -94,6 +94,10 @@ type MouseState struct {
 	Pressed  bool
 	Released bool
 	Motion   bool
+	// Double is true when this press follows a press of the same
+	// button at the same cell within the double-click window. Set
+	// only on the second press of a pair.
+	Double bool
 }
 
 // Backend is the contract between the term layer and the rest of fv-go.
@@ -126,6 +130,11 @@ type Backend interface {
 
 	// SetCursor moves the visible cursor. Negative coordinates hide it.
 	SetCursor(x, y int)
+
+	// WriteRaw emits an arbitrary byte sequence to the terminal.
+	// Used by the clipboard package to send OSC 52 sequences that
+	// populate the host clipboard when supported.
+	WriteRaw(s string) error
 
 	// ShowCursor toggles cursor visibility independent of position.
 	ShowCursor(visible bool)

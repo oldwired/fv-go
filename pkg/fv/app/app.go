@@ -6,6 +6,7 @@
 package app
 
 import (
+	"github.com/oldwired/fv-go/pkg/fv/clipboard"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
@@ -51,6 +52,68 @@ func NewProgram(backend term.Backend) *Program {
 // GetTypeID for serial registry.
 func (p *Program) GetTypeID() string { return "program" }
 
+// HandleEvent overrides Group.HandleEvent to translate the standard
+// global shortcuts into commands before walking children. F1 → cmHelp,
+// F5 → cmZoom, F6 / Shift+F6 → cmNext / cmPrev, Alt+F3 → cmClose,
+// Alt+0..9 → cmSelectWindowNum. After translation we still call the
+// embedded Group dispatch so other views can react.
+func (p *Program) HandleEvent(ev *drivers.Event) {
+	if ev.What == consts.EvKeyDown {
+		var emit uint16
+		var info int16
+		switch ev.KeyCode {
+		case consts.KbF1:
+			emit = consts.CmHelp
+		case consts.KbF5:
+			emit = consts.CmZoom
+		case consts.KbF6:
+			emit = consts.CmNext
+		case consts.KbShiftF6:
+			emit = consts.CmPrev
+		case consts.KbAltF3:
+			emit = consts.CmClose
+		case consts.KbCtrlIns:
+			emit = consts.CmCopy
+		case consts.KbShiftIns:
+			emit = consts.CmPaste
+		case consts.KbShiftDel:
+			emit = consts.CmCut
+		}
+		// Alt+digit: select Nth window. The reader puts the digit in
+		// UnicodeChar when ModAlt is held.
+		if emit == 0 && ev.KeyShift&consts.KbAltShift != 0 &&
+			ev.UnicodeChar >= '0' && ev.UnicodeChar <= '9' {
+			emit = consts.CmSelectWindowNum
+			info = int16(ev.UnicodeChar - '0')
+		}
+		// Ctrl+C / Ctrl+X / Ctrl+V → clipboard commands. We use the
+		// scan-coded form so plain typing doesn't trigger them. Note
+		// that Cmd+V on macOS goes through the terminal's bracketed
+		// paste path independently of these.
+		if emit == 0 {
+			switch ev.KeyCode {
+			case consts.KbCtrlC:
+				emit = consts.CmCopy
+			case consts.KbCtrlX:
+				emit = consts.CmCut
+			case consts.KbCtrlV:
+				emit = consts.CmPaste
+			}
+		}
+		if emit != 0 {
+			cmd := drivers.Event{
+				What:    consts.EvCommand,
+				Command: emit,
+				InfoInt: info,
+			}
+			p.queue.Put(cmd)
+			ev.What = consts.EvNothing
+			return
+		}
+	}
+	p.Group.HandleEvent(ev)
+}
+
 // SetMenuBar inserts a menu bar above the desktop.
 func (p *Program) SetMenuBar(v views.View) {
 	if p.MenuBar != nil {
@@ -95,6 +158,16 @@ func (p *Program) Run() {
 		ev, ok := p.queue.Get()
 		if !ok {
 			p.waitOne()
+			continue
+		}
+		// Terminal resize: the term backend fires evCommand+cmResizeApp
+		// with InfoPtr = geom.Point{cols, rows}. Resize ourselves; the
+		// GrowMode plumbing on MenuBar / Desktop / StatusLine carries
+		// the change down.
+		if ev.What == consts.EvCommand && ev.Command == consts.CmResizeApp {
+			if pt, ok := ev.InfoPtr.(geom.Point); ok {
+				p.ChangeBounds(geom.NewRect(0, 0, pt.X, pt.Y))
+			}
 			continue
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
@@ -173,6 +246,8 @@ func NewApplication() (*Application, error) {
 	cols, rows := be.Size()
 	desktopBounds := geom.NewRect(0, 1, cols, rows-1)
 	a.SetDesktop(NewDesktop(desktopBounds))
+	// Wire clipboard so cut/copy emits OSC 52 to the host terminal.
+	clipboard.SetWriter(be.WriteRaw)
 	return a, nil
 }
 

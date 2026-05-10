@@ -87,6 +87,12 @@ func main() {
 		case consts.CmCloseAll:
 			closeAll(a)
 			return true
+		case consts.CmHelp:
+			showHelp(a)
+			return true
+		case consts.CmSelectWindowNum:
+			selectWindowNum(a, int(ev.InfoInt))
+			return true
 		}
 		return false
 	}
@@ -131,11 +137,15 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 }
 
 func buildStatusLine(bounds geom.Rect) *menus.StatusLine {
+	// The Program-level shortcuts (F1/F5/F6/Alt-F3/Alt-0..9) are always
+	// active regardless of the status line; the items here just hint at
+	// the most useful ones plus the primary entry points.
 	return menus.NewStatusLine(bounds, []*menus.StatusItem{
+		{Text: "~F1~ Help", KeyCode: consts.KbF1, Command: consts.CmHelp},
 		{Text: "~Alt-X~ Exit", KeyCode: consts.KbAltX, Command: consts.CmQuitApp},
 		{Text: "~F10~ Menu", KeyCode: consts.KbF10, Command: consts.CmMenu},
-		{Text: "~Alt-F~ File", KeyCode: 0, Command: 0},
-		{Text: "~Alt-T~ Test", KeyCode: 0, Command: 0},
+		{Text: "~F6~ Next", KeyCode: 0, Command: 0},
+		{Text: "~Alt-F3~ Close", KeyCode: 0, Command: 0},
 	})
 }
 

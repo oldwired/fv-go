@@ -122,6 +122,14 @@ func (b *winBackend) SetCell(x, y int, c types.DrawCell) { b.buf.Set(x, y, c) }
 
 func (b *winBackend) GetCell(x, y int) types.DrawCell { return b.buf.Get(x, y) }
 
+func (b *winBackend) WriteRaw(s string) error {
+	if b.out == nil {
+		return nil
+	}
+	_, err := b.out.WriteString(s)
+	return err
+}
+
 func (b *winBackend) Clear(attr uint16) { b.buf.Clear(attr) }
 
 func (b *winBackend) Flush() error {

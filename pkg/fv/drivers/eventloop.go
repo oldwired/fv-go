@@ -52,6 +52,7 @@ func FromTermEvent(t term.Event) Event {
 		}
 		e.Buttons = t.Mouse.Buttons
 		e.Where = t.Mouse.Where
+		e.DoubleClk = t.Mouse.Double
 	case term.EventResize:
 		e.What = consts.EvCommand
 		e.Command = consts.CmResizeApp

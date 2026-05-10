@@ -120,6 +120,14 @@ func (b *posixBackend) SetCell(x, y int, c types.DrawCell) { b.buf.Set(x, y, c) 
 
 func (b *posixBackend) GetCell(x, y int) types.DrawCell { return b.buf.Get(x, y) }
 
+func (b *posixBackend) WriteRaw(s string) error {
+	if b.out == nil {
+		return nil
+	}
+	_, err := b.out.WriteString(s)
+	return err
+}
+
 func (b *posixBackend) Clear(attr uint16) { b.buf.Clear(attr) }
 
 func (b *posixBackend) Flush() error {
@@ -181,6 +189,11 @@ func (b *posixBackend) signalLoop() {
 				continue
 			}
 			b.buf.Resize(cols, rows)
+			// Wipe the terminal so any cells from the previous size
+			// disappear before the next idle redraw fills the whole
+			// new viewport. Without this, stale cells from rows /
+			// columns that no longer exist linger during a drag.
+			_, _ = b.out.WriteString("\x1b[2J")
 			select {
 			case b.events <- Event{Kind: EventResize, Resize: geom.Point{X: cols, Y: rows}}:
 			case <-b.stop:

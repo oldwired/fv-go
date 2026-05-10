@@ -37,16 +37,12 @@ var frameChars = [2][6]rune{
 // drew it — typically Window.Draw, which fills first then asks the
 // frame (its first child) to overlay the border.
 func (f *Frame) Draw() {
+	// Active = "this window is the focused one of its parent group".
+	// We deliberately check ONLY the immediate owner: a recursive walk
+	// would mark every window active whenever the Desktop is active.
 	active := byte(0)
-	// Walk up starting at the Frame's direct owner — that's the Window's
-	// Group, whose `self` IS the Window. Earlier this skipped the
-	// Window and started at the Desktop, which is why the title and
-	// close/zoom icons didn't appear.
-	for o := f.Owner; o != nil; o = o.Owner {
-		if o.GetState(consts.SfActive) {
-			active = 1
-			break
-		}
+	if f.Owner != nil && f.Owner.GetState(consts.SfActive) {
+		active = 1
 	}
 	chars := frameChars[active]
 	w := f.Size.X
@@ -84,6 +80,11 @@ func (f *Frame) Draw() {
 	}
 	if f.windowFlags()&consts.WfZoom != 0 {
 		screen.DrawStr(top, w-5, "[↕]", iconColor)
+	}
+	// Window number (1..9) immediately before the zoom icon, like
+	// classic TV. 0 means "no number".
+	if n := f.windowNumber(); n >= 1 && n <= 9 && w > 7 {
+		screen.DrawStr(top, w-7, " "+string(rune('0'+n))+" ", iconColor)
 	}
 	f.WriteLine(0, 0, w, 1, top)
 
@@ -128,6 +129,16 @@ func (f *Frame) windowFlags() byte {
 	return 0
 }
 
+func (f *Frame) windowNumber() int {
+	type numberer interface{ Number() int }
+	for o := f.Owner; o != nil; o = o.Owner {
+		if t, ok := any(o.self).(numberer); ok {
+			return t.Number()
+		}
+	}
+	return 0
+}
+
 // Window is a framed, possibly movable, possibly resizable Group.
 type Window struct {
 	Group
@@ -161,7 +172,11 @@ func InitWindow(w *Window, bounds geom.Rect, title string, number int) {
 	w.SetSelf(w)
 	w.State |= consts.SfShadow
 	w.Options |= consts.OfSelectable | consts.OfTopSelect
-	w.GrowMode = consts.GfGrowAll
+	// GrowMode = 0 means the window stays put when its parent resizes.
+	// Using GfGrowAll here would translate every window's origin by
+	// the desktop's size delta, dragging windows off-screen on shrink.
+	// Maximize-tracking is handled separately in zoom().
+	w.GrowMode = 0
 
 	w.Frame = NewFrame(geom.Rect{B: w.Size})
 	w.Insert(w.Frame)
@@ -404,7 +419,30 @@ func (w *Window) dragLoop(start *drivers.Event) {
 			dx := ev.Where.X - prev.X
 			dy := ev.Where.Y - prev.Y
 			if dx != 0 || dy != 0 {
-				w.MoveTo(w.Origin.X+dx, w.Origin.Y+dy)
+				newX := w.Origin.X + dx
+				newY := w.Origin.Y + dy
+				if w.Owner != nil {
+					ext := w.Owner.GetExtent()
+					// Keep the title bar accessible: leave at least
+					// 8 cells horizontally on screen and don't allow
+					// the top edge above row 0 or below the parent's
+					// bottom-1.
+					minX := 8 - w.Size.X
+					maxX := ext.Width() - 8
+					if newX < minX {
+						newX = minX
+					}
+					if newX > maxX {
+						newX = maxX
+					}
+					if newY < 0 {
+						newY = 0
+					}
+					if newY > ext.Height()-1 {
+						newY = ext.Height() - 1
+					}
+				}
+				w.MoveTo(newX, newY)
 				prev = ev.Where
 			}
 		}
@@ -417,12 +455,18 @@ func (w *Window) zoom() {
 	}
 	cur := w.GetBounds()
 	if cur.Equals(w.Owner.GetExtent()) {
-		// Already maximized — restore.
+		// Already maximized — restore. Drop the desktop-tracking
+		// grow bits so future desktop resizes don't drag this
+		// window around.
+		w.GrowMode = 0
 		w.ChangeBounds(w.zoomRect)
 		return
 	}
 	// Remember the pre-maximize bounds so the next zoom restores it.
 	w.zoomRect = cur
+	// While maximized, follow the desktop's right and bottom edges so
+	// the window stays full-screen across terminal resizes.
+	w.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
 	w.ChangeBounds(w.Owner.GetExtent())
 }
 
