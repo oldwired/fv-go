@@ -13,6 +13,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
+	"github.com/oldwired/fv-go/pkg/fv/help"
 	"github.com/oldwired/fv-go/pkg/fv/term"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -88,6 +89,16 @@ func (p *Program) HandleEvent(ev *drivers.Event) {
 		}
 		var emit uint16
 		var info int16
+		// F1: if focus advertises a help context, open the help view
+		// directly. Otherwise fall through to the legacy CmHelp emit
+		// so apps that wire their own help handler still work.
+		if ev.KeyCode == consts.KbF1 {
+			if ctx := p.helpCtxFromFocus(); ctx != 0 {
+				help.Show(&p.Desktop.Group, ctx)
+				ev.What = consts.EvNothing
+				return
+			}
+		}
 		switch ev.KeyCode {
 		case consts.KbF1:
 			emit = consts.CmHelp
@@ -160,6 +171,27 @@ func (p *Program) focusWantsRawKeys() bool {
 		next := c.Current()
 		if next == nil || next == v {
 			return false
+		}
+		v = next
+	}
+}
+
+// helpCtxFromFocus walks the focus chain to find the nearest non-zero
+// HelpCtx. Returns 0 if no focused view advertises a context.
+func (p *Program) helpCtxFromFocus() uint16 {
+	type currenter interface{ Current() views.View }
+	var v views.View = p
+	for {
+		if bv := v.BaseView(); bv != nil && bv.HelpCtx != 0 {
+			return bv.HelpCtx
+		}
+		c, ok := v.(currenter)
+		if !ok {
+			return 0
+		}
+		next := c.Current()
+		if next == nil || next == v {
+			return 0
 		}
 		v = next
 	}

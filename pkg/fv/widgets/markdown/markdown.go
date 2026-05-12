@@ -88,12 +88,27 @@ func parse(md string) []renderedLine {
 	ruleAttr := types.MakeAttr(0x08, 0x01)
 	emphAttr := types.MakeAttr(0x0F, 0x01)
 	linkAttr := types.MakeAttr(0x09, 0x01)
+	tableHeaderAttr := types.MakeAttr(0x0F, 0x05)
+	tableBodyAttr := types.MakeAttr(0x0F, 0x01)
+	tableFrameAttr := types.MakeAttr(0x08, 0x01)
 
 	var out []renderedLine
 	inFence := false
 	fenceAttr := codeAttr
 
-	for _, raw := range strings.Split(md, "\n") {
+	lines := strings.Split(md, "\n")
+	for li := 0; li < len(lines); li++ {
+		raw := lines[li]
+		// Table detection: a "|"-prefixed line followed by a
+		// separator row of |---|:---|---: pattern is a table.
+		if !inFence && li+1 < len(lines) && looksLikeTableHeader(raw) && isTableSeparator(lines[li+1]) {
+			rows, aligns, consumed := readTable(lines[li:])
+			tableLines := renderTable(rows, aligns, tableHeaderAttr, tableBodyAttr, tableFrameAttr)
+			out = append(out, tableLines...)
+			li += consumed - 1
+			continue
+		}
+		_ = raw
 		// Fenced code block toggle.
 		if strings.HasPrefix(raw, "```") {
 			inFence = !inFence
@@ -157,6 +172,201 @@ func parse(md string) []renderedLine {
 		out = append(out, rl)
 	}
 	return out
+}
+
+// looksLikeTableHeader returns true for "| Col A | Col B |"-style
+// lines: leading "|", at least one column. Tolerates whitespace.
+func looksLikeTableHeader(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "|") && strings.Count(s, "|") >= 2
+}
+
+// isTableSeparator returns true for the "| --- | :---: |" alignment
+// row. Each cell must be non-empty dashes optionally bracketed by
+// colons. The colons signal column alignment.
+func isTableSeparator(s string) bool {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "|") {
+		return false
+	}
+	parts := splitTableRow(s)
+	if len(parts) == 0 {
+		return false
+	}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return false
+		}
+		p = strings.TrimPrefix(p, ":")
+		p = strings.TrimSuffix(p, ":")
+		if p == "" {
+			return false
+		}
+		for _, c := range p {
+			if c != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// splitTableRow splits a "| a | b | c |" row into ["a", "b", "c"].
+// Strips leading/trailing "|" and surrounding whitespace per cell.
+func splitTableRow(s string) []string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "|")
+	s = strings.TrimSuffix(s, "|")
+	parts := strings.Split(s, "|")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return parts
+}
+
+// readTable parses a contiguous run of table lines from start. Returns
+// the parsed rows (header + body), per-column alignment hints, and the
+// number of source lines consumed.
+func readTable(lines []string) ([][]string, []Alignment, int) {
+	header := splitTableRow(lines[0])
+	sepParts := splitTableRow(lines[1])
+	aligns := make([]Alignment, len(sepParts))
+	for i, p := range sepParts {
+		l := strings.HasPrefix(p, ":")
+		r := strings.HasSuffix(p, ":")
+		switch {
+		case l && r:
+			aligns[i] = AlignCenter
+		case r:
+			aligns[i] = AlignRight
+		default:
+			aligns[i] = AlignLeft
+		}
+	}
+	rows := [][]string{header}
+	consumed := 2
+	for i := 2; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || !strings.HasPrefix(line, "|") {
+			break
+		}
+		rows = append(rows, splitTableRow(lines[i]))
+		consumed = i + 1
+	}
+	return rows, aligns, consumed
+}
+
+// Alignment is the column-alignment hint produced by table parsing.
+type Alignment int
+
+const (
+	AlignLeft Alignment = iota
+	AlignCenter
+	AlignRight
+)
+
+// renderTable formats parsed rows + alignments into a set of
+// renderedLines with box-drawing borders. Column widths are derived
+// from the max content width per column.
+func renderTable(rows [][]string, aligns []Alignment, headerAttr, bodyAttr, frameAttr uint16) []renderedLine {
+	if len(rows) == 0 {
+		return nil
+	}
+	ncols := 0
+	for _, r := range rows {
+		if len(r) > ncols {
+			ncols = len(r)
+		}
+	}
+	for len(aligns) < ncols {
+		aligns = append(aligns, AlignLeft)
+	}
+	widths := make([]int, ncols)
+	for _, r := range rows {
+		for c := 0; c < ncols; c++ {
+			cell := ""
+			if c < len(r) {
+				cell = r[c]
+			}
+			if w := len(cell); w > widths[c] {
+				widths[c] = w
+			}
+		}
+	}
+	// Minimum 3 chars per column (so "─" runs are visible).
+	for c := range widths {
+		if widths[c] < 3 {
+			widths[c] = 3
+		}
+	}
+	var out []renderedLine
+	out = append(out, tableBorder(widths, "┌", "┬", "┐", frameAttr))
+	out = append(out, tableDataRow(rows[0], widths, aligns, headerAttr, frameAttr))
+	out = append(out, tableBorder(widths, "├", "┼", "┤", frameAttr))
+	for r := 1; r < len(rows); r++ {
+		out = append(out, tableDataRow(rows[r], widths, aligns, bodyAttr, frameAttr))
+	}
+	out = append(out, tableBorder(widths, "└", "┴", "┘", frameAttr))
+	return out
+}
+
+func tableBorder(widths []int, left, mid, right string, attr uint16) renderedLine {
+	var sb strings.Builder
+	sb.WriteString(left)
+	for i, w := range widths {
+		sb.WriteString(strings.Repeat("─", w+2))
+		if i+1 < len(widths) {
+			sb.WriteString(mid)
+		}
+	}
+	sb.WriteString(right)
+	text := sb.String()
+	return renderedLine{
+		Text:  text,
+		Spans: []span{{Start: 0, End: len(text), Attr: attr}},
+	}
+}
+
+func tableDataRow(row []string, widths []int, aligns []Alignment, cellAttr, frameAttr uint16) renderedLine {
+	var sb strings.Builder
+	sb.WriteString("│")
+	for c, w := range widths {
+		cell := ""
+		if c < len(row) {
+			cell = row[c]
+		}
+		sb.WriteString(" ")
+		sb.WriteString(alignTo(cell, w, aligns[c]))
+		sb.WriteString(" ")
+		sb.WriteString("│")
+	}
+	text := sb.String()
+	// Frame chars get frameAttr; the rest cellAttr. For simplicity
+	// just paint the whole row in cellAttr — the frame stays readable.
+	_ = frameAttr
+	return renderedLine{
+		Text:  text,
+		Spans: []span{{Start: 0, End: len(text), Attr: cellAttr}},
+	}
+}
+
+func alignTo(s string, width int, a Alignment) string {
+	if len(s) >= width {
+		if len(s) > width {
+			return s[:width]
+		}
+		return s
+	}
+	pad := width - len(s)
+	switch a {
+	case AlignRight:
+		return strings.Repeat(" ", pad) + s
+	case AlignCenter:
+		l := pad / 2
+		return strings.Repeat(" ", l) + s + strings.Repeat(" ", pad-l)
+	}
+	return s + strings.Repeat(" ", pad)
 }
 
 // countLeading counts how many of c appear at the start of s.

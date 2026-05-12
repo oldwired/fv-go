@@ -74,7 +74,36 @@ type Editor struct {
 	LastFind    string
 	LastReplace string
 	CaseSense   bool
+
+	// Undo / redo stack. See undo.go for the change-coalescing rules.
+	undoStack []editChange
+	undoAt    int
+
+	// Wrap configuration. Wrap = false renders identical to the
+	// non-wrapping path; Wrap = true wraps long lines at RightMargin
+	// (or, when RightMargin is 0, at the view's width). The wrap is
+	// purely visual — the underlying buffer is unchanged. Reformat
+	// (Ctrl+B) actually rewrites the paragraph at RightMargin.
+	Wrap        bool
+	RightMargin int
+
+	// Bookmarks: indices 0..9 map to byte positions in Data. -1 means
+	// the slot is empty. Set / jump via Ctrl+K + digit / Ctrl+Q + digit.
+	bookmarks [10]int
+
+	// Two-keystroke prefix state. When non-zero, the next key is the
+	// digit operand for a Ctrl+K / Ctrl+Q chord.
+	prefix prefixKey
 }
+
+// prefixKey tracks the first key of a two-key chord. Zero = none.
+type prefixKey int
+
+const (
+	prefixNone     prefixKey = 0
+	prefixSetMark  prefixKey = 1 // Ctrl+K — next digit sets a mark
+	prefixJumpMark prefixKey = 2 // Ctrl+Q — next digit jumps to a mark
+)
 
 // New constructs an empty Editor.
 func New(bounds geom.Rect, h, v *views.ScrollBar) *Editor {
@@ -85,6 +114,9 @@ func New(bounds geom.Rect, h, v *views.ScrollBar) *Editor {
 		HScroll:   h,
 		VScroll:   v,
 		encoding:  utf8.EncUTF8,
+	}
+	for i := range e.bookmarks {
+		e.bookmarks[i] = -1
 	}
 	e.SetSelf(e)
 	e.Options |= consts.OfSelectable | consts.OfFirstClick
@@ -99,7 +131,8 @@ func New(bounds geom.Rect, h, v *views.ScrollBar) *Editor {
 // GetTypeID for serial registry.
 func (e *Editor) GetTypeID() string { return "editor" }
 
-// SetText replaces the buffer.
+// SetText replaces the buffer. Wipes the undo history because the
+// pre-swap state isn't reachable anymore.
 func (e *Editor) SetText(s string) {
 	e.Data = []byte(s)
 	e.Cursor = 0
@@ -107,6 +140,7 @@ func (e *Editor) SetText(s string) {
 	e.Top = 0
 	e.LeftCol = 0
 	e.Modified = false
+	e.ResetUndo()
 	e.refreshScroll()
 }
 
@@ -389,12 +423,12 @@ func (e *Editor) Insert(s string) {
 	if e.ReadOnly || s == "" {
 		return
 	}
-	e.deleteSelection()
+	if e.HasSelection() {
+		e.deleteSelection()
+	}
 	pos := e.Cursor
-	e.Data = append(e.Data[:pos], append([]byte(s), e.Data[pos:]...)...)
-	e.Cursor = pos + len(s)
+	e.applyChange(pos, pos, []byte(s), pos+len(s))
 	e.SelAnchor = -1
-	e.Modified = true
 	e.adjustScroll()
 }
 
@@ -405,10 +439,8 @@ func (e *Editor) deleteSelection() bool {
 		return false
 	}
 	lo, hi := e.selRange()
-	e.Data = append(e.Data[:lo], e.Data[hi:]...)
-	e.Cursor = lo
+	e.applyChange(lo, hi, nil, lo)
 	e.SelAnchor = -1
-	e.Modified = true
 	return true
 }
 
@@ -425,11 +457,8 @@ func (e *Editor) Backspace() {
 		return
 	}
 	// Step back one rune.
-	r, sz := stdutf8.DecodeLastRune(e.Data[:e.Cursor])
-	_ = r
-	e.Data = append(e.Data[:e.Cursor-sz], e.Data[e.Cursor:]...)
-	e.Cursor -= sz
-	e.Modified = true
+	_, sz := stdutf8.DecodeLastRune(e.Data[:e.Cursor])
+	e.applyChange(e.Cursor-sz, e.Cursor, nil, e.Cursor-sz)
 	e.adjustScroll()
 }
 
@@ -446,8 +475,7 @@ func (e *Editor) DeleteForward() {
 		return
 	}
 	_, sz := stdutf8.DecodeRune(e.Data[e.Cursor:])
-	e.Data = append(e.Data[:e.Cursor], e.Data[e.Cursor+sz:]...)
-	e.Modified = true
+	e.applyChange(e.Cursor, e.Cursor+sz, nil, e.Cursor)
 	e.adjustScroll()
 }
 
@@ -523,7 +551,59 @@ func (e *Editor) HandleEvent(ev *drivers.Event) {
 	if ev.What != consts.EvKeyDown {
 		return
 	}
+	// Two-keystroke chord handling: Ctrl+K then digit sets a mark;
+	// Ctrl+Q then digit jumps to a mark. The prefix is cleared after
+	// the second key, success or fail.
+	if e.prefix != prefixNone {
+		if r := ev.UnicodeChar; r >= '0' && r <= '9' {
+			idx := int(r - '0')
+			if e.prefix == prefixSetMark {
+				e.bookmarks[idx] = e.Cursor
+			} else {
+				if pos := e.bookmarks[idx]; pos >= 0 && pos <= len(e.Data) {
+					e.MoveCursor(pos, false)
+				}
+			}
+		}
+		e.prefix = prefixNone
+		e.Draw()
+		e.ClearEvent(ev)
+		return
+	}
 	shift := ev.KeyShift&(consts.KbLeftShift|consts.KbRightShift) != 0
+	switch ev.KeyCode {
+	case consts.KbCtrlZ:
+		e.Undo()
+		e.Draw()
+		e.ClearEvent(ev)
+		return
+	case consts.KbCtrlY:
+		e.Redo()
+		e.Draw()
+		e.ClearEvent(ev)
+		return
+	case consts.KbCtrlK:
+		e.prefix = prefixSetMark
+		e.ClearEvent(ev)
+		return
+	case consts.KbCtrlQ:
+		e.prefix = prefixJumpMark
+		e.ClearEvent(ev)
+		return
+	case consts.KbCtrlG:
+		// Caller wires CmEditorGoto; fall through to default if no
+		// listener is set. We just emit a command for the host to
+		// handle (the demo wires it to a Jump dialog).
+		notify := drivers.Event{What: consts.EvCommand, Command: consts.CmEditorGoto, InfoPtr: e.Self()}
+		e.PutEvent(&notify)
+		e.ClearEvent(ev)
+		return
+	case consts.KbCtrlB:
+		e.Reformat()
+		e.Draw()
+		e.ClearEvent(ev)
+		return
+	}
 	switch ev.KeyCode {
 	case consts.KbLeft:
 		if e.Cursor > 0 {
@@ -622,18 +702,23 @@ func (e *Editor) Find(needle string, caseSense bool) bool {
 }
 
 // ReplaceAll replaces every needle with replacement and returns the
-// number of replacements made.
+// number of replacements made. The whole replacement is one undo
+// entry — Ctrl+Z reverses all instances at once.
 func (e *Editor) ReplaceAll(needle, replacement string, caseSense bool) int {
 	if needle == "" {
 		return 0
 	}
-	var count int
 	hay := e.Data
+	var newData []byte
+	var count int
 	if caseSense {
 		count = bytes.Count(hay, []byte(needle))
-		e.Data = bytes.ReplaceAll(hay, []byte(needle), []byte(replacement))
+		if count == 0 {
+			return 0
+		}
+		newData = bytes.ReplaceAll(hay, []byte(needle), []byte(replacement))
 	} else {
-		// Case-insensitive: do it the hard way to avoid corrupting
+		// Case-insensitive: rebuild byte-by-byte to avoid corrupting
 		// non-ASCII bytes.
 		var out bytes.Buffer
 		nLow := strings.ToLower(needle)
@@ -649,14 +734,16 @@ func (e *Editor) ReplaceAll(needle, replacement string, caseSense bool) int {
 			hayStr = hayStr[i+len(needle):]
 			count++
 		}
-		e.Data = out.Bytes()
+		if count == 0 {
+			return 0
+		}
+		newData = out.Bytes()
 	}
-	if count > 0 {
-		e.Modified = true
+	cursor := e.Cursor
+	if cursor > len(newData) {
+		cursor = len(newData)
 	}
-	if e.Cursor > len(e.Data) {
-		e.Cursor = len(e.Data)
-	}
+	e.applyChange(0, len(hay), newData, cursor)
 	e.SelAnchor = -1
 	e.adjustScroll()
 	return count

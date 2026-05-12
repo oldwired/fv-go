@@ -63,13 +63,17 @@ func (b *cellBuf) Clear(attr uint16) {
 }
 
 // span describes a contiguous run of cells with identical attributes,
-// suitable for emitting as one chunk of SGR + text.
+// suitable for emitting as one chunk of SGR + text. url, when non-
+// empty, wraps the span in OSC 8 ; ; URL …  OSC 8 ; ; — terminals
+// that honor it render the span clickable (iTerm2, WezTerm, recent
+// gnome-terminal, …); others ignore the OSC.
 type span struct {
 	x, y int
 	attr uint16
 	fg   uint32
 	bg   uint32
 	ext  byte
+	url  string
 	text string
 }
 
@@ -97,7 +101,8 @@ func (b *cellBuf) dirty() []span {
 				}
 				next := b.cur[j]
 				if next.Attr != cur.Attr || next.FGRGB != cur.FGRGB ||
-					next.BGRGB != cur.BGRGB || next.ExtAttrs != cur.ExtAttrs {
+					next.BGRGB != cur.BGRGB || next.ExtAttrs != cur.ExtAttrs ||
+					next.HyperlinkURL != cur.HyperlinkURL {
 					break
 				}
 				text += next.Ch
@@ -110,6 +115,7 @@ func (b *cellBuf) dirty() []span {
 				fg:   cur.FGRGB,
 				bg:   cur.BGRGB,
 				ext:  cur.ExtAttrs,
+				url:  cur.HyperlinkURL,
 				text: text,
 			})
 		}

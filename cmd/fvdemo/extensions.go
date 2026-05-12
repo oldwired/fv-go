@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -17,6 +18,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/msgbox"
+	"github.com/oldwired/fv-go/pkg/fv/profile"
 	"github.com/oldwired/fv-go/pkg/fv/sixel"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/battery"
@@ -26,6 +28,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/widgets/editor"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/editorgutter"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/fuzzyfinder"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/hyperlink"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/imageview"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/logviewer"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/markdown"
@@ -60,6 +63,11 @@ const (
 	cmAppCanvas
 	cmAppTerminal
 	cmTerminalChildExited
+	cmAppProfileDump
+	cmAppHyperlink
+	cmAppUnicode
+	cmAppSaveDesktop
+	cmAppLoadDesktop
 )
 
 // dispatchExtension routes the new menu items. The event is needed so
@@ -110,6 +118,16 @@ func dispatchExtension(a *app.Application, cmd uint16, ev *drivers.Event) bool {
 		if win, ok := ev.InfoPtr.(*views.Window); ok {
 			a.Desktop.Delete(win.Self())
 		}
+	case cmAppProfileDump:
+		showProfileDump(a)
+	case cmAppHyperlink:
+		showHyperlinkDemo(a)
+	case cmAppUnicode:
+		showUnicodeDemo(a)
+	case cmAppSaveDesktop:
+		saveDesktopFile(a)
+	case cmAppLoadDesktop:
+		loadDesktopFile(a)
 	default:
 		return false
 	}
@@ -654,4 +672,121 @@ func hsvToRGB(h, s, v float64) color.RGBA {
 		r, g, b = v, p, q
 	}
 	return color.RGBA{uint8(r * 255), uint8(g * 255), uint8(b * 255), 255}
+}
+
+// showProfileDump opens a small window listing what the term profile
+// detected at startup. Useful for verifying that color / mouse /
+// SIXEL / hyperlink probes ran correctly on the host terminal.
+func showProfileDump(a *app.Application) {
+	p := profile.Get()
+	body := fmt.Sprintf(
+		`Color system:       %v
+ANSI supported:     %v
+Interactive:        %v
+Legacy console:     %v
+Unicode:            %v
+Hyperlink (OSC 8):  %v
+SIXEL graphics:     %v
+CI environment:     %v
+TERM:               %s
+TERM_PROGRAM:       %s
+COLORTERM:          %s
+`,
+		p.ColorSystem, p.AnsiSupported, p.Interactive, p.LegacyConsole,
+		p.Unicode, p.HyperlinkSupport, p.SixelSupport, p.IsCI,
+		os.Getenv("TERM"), os.Getenv("TERM_PROGRAM"), os.Getenv("COLORTERM"))
+
+	win := views.NewWindow(geom.NewRect(4, 2, 60, 18), "Profile",
+		int(consts.WfMove|consts.WfClose))
+	w, h := win.Size.X, win.Size.Y
+	txt := dialogs.NewStaticText(geom.NewRect(2, 1, w-2, h-1), body)
+	win.Insert(txt)
+	a.Desktop.InsertWindow(win)
+}
+
+// showHyperlinkDemo opens a window with a few hyperlink.New views.
+// On a terminal that honors OSC 8 (iTerm2, WezTerm, kitty, recent
+// Windows Terminal, …) the URLs are clickable; everywhere else they
+// stay underlined.
+func showHyperlinkDemo(a *app.Application) {
+	win := views.NewWindow(geom.NewRect(4, 2, 64, 14), "Hyperlinks",
+		int(consts.WfMove|consts.WfClose))
+	w, h := win.Size.X, win.Size.Y
+	_ = h
+	win.Insert(dialogs.NewStaticText(geom.NewRect(2, 1, w-2, 2),
+		"OSC 8 hyperlinks — clickable in modern terminals:"))
+	win.Insert(hyperlink.New(geom.NewRect(2, 3, w-2, 4),
+		"fv-go on GitHub", "https://github.com/oldwired/fv-go"))
+	win.Insert(hyperlink.New(geom.NewRect(2, 5, w-2, 6),
+		"Free Vision (Delphi)", "https://github.com/oldwired/fv-delphi-modern"))
+	win.Insert(hyperlink.New(geom.NewRect(2, 7, w-2, 8),
+		"Turbo Vision background", "https://en.wikipedia.org/wiki/Turbo_Vision"))
+	win.Insert(dialogs.NewStaticText(geom.NewRect(2, 9, w-2, 10),
+		"Cmd / Ctrl + click in iTerm2 / WezTerm / kitty to follow."))
+	a.Desktop.InsertWindow(win)
+}
+
+// showUnicodeDemo demonstrates the unicode width tables: a mix of
+// BMP text, CJK ideographs, emoji ZWJ sequences, and combining marks.
+// Use it to verify rendering when changing fonts.
+func showUnicodeDemo(a *app.Application) {
+	win := views.NewWindow(geom.NewRect(4, 2, 64, 16), "Unicode",
+		int(consts.WfMove|consts.WfClose))
+	w, h := win.Size.X, win.Size.Y
+	_ = h
+	lines := []string{
+		"ASCII:    The quick brown fox jumps over the lazy dog.",
+		"Latin-1:  café crème brûlée naïve résumé Zürich",
+		"Greek:    Ζεύς απαθηνής λοιπóν με τους θεούς",
+		"Hebrew:   שלום עולם — right-to-left",
+		"CJK:      你好世界 — 日本語 — 한국어",
+		"Emoji:    🍎🍊🍋  👨‍👩‍👧‍👦  🏳️‍🌈  ✨🚀💫",
+		"Combine:  a + ̈ = ä  e + ́ = é  o + ̃ = õ",
+	}
+	for i, line := range lines {
+		win.Insert(dialogs.NewStaticText(
+			geom.NewRect(2, 1+i, w-2, 2+i), line))
+	}
+	a.Desktop.InsertWindow(win)
+}
+
+// saveDesktopFile pops a save-file dialog and writes the desktop layout
+// to the chosen path via the new app.SaveDesktop helper.
+func saveDesktopFile(a *app.Application) {
+	path, ok := stddlg.ShowModern(&a.Desktop.Group, stddlg.ModeSave,
+		"Save Desktop", "", "*.fvd")
+	if !ok {
+		return
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
+			"Couldn't write %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
+		return
+	}
+	defer f.Close()
+	if err := a.SaveDesktop(f); err != nil {
+		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
+			"Save failed: %s", []any{err.Error()}, msgbox.OKOnly)
+	}
+}
+
+// loadDesktopFile is the symmetric load path.
+func loadDesktopFile(a *app.Application) {
+	path, ok := stddlg.ShowModern(&a.Desktop.Group, stddlg.ModeOpen,
+		"Load Desktop", "", "*.fvd")
+	if !ok {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
+			"Couldn't open %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
+		return
+	}
+	defer f.Close()
+	if err := a.LoadDesktop(f); err != nil {
+		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
+			"Load failed: %s", []any{err.Error()}, msgbox.OKOnly)
+	}
 }

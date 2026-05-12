@@ -159,7 +159,15 @@ func (b *winBackend) Flush() error {
 		fg := types.FG(s.attr)
 		bg := types.BG(s.attr)
 		b.enc.transition(&sb, sgrState{fg: fg, bg: bg, fgRGB: s.fg, bgRGB: s.bg, ext: s.ext})
+		if s.url != "" {
+			sb.WriteString("\x1b]8;;")
+			sb.WriteString(s.url)
+			sb.WriteString("\x1b\\")
+		}
 		sb.WriteString(s.text)
+		if s.url != "" {
+			sb.WriteString("\x1b]8;;\x1b\\")
+		}
 	}
 	sb.WriteString("\x1b[0m")
 	if b.cursorOn {

@@ -131,6 +131,13 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 		&menus.Item{Name: "Image View (~O~pen...)", Command: cmAppImageViewOpen},
 		&menus.Item{Name: "Sixel ~C~anvas", Command: cmAppCanvas},
 		&menus.Item{Name: "T~e~rminal", Command: cmAppTerminal},
+		menus.Separator(),
+		&menus.Item{Name: "Pro~f~ile Dump", Command: cmAppProfileDump},
+		&menus.Item{Name: "H~y~perlinks", Command: cmAppHyperlink},
+		&menus.Item{Name: "~U~nicode Showcase", Command: cmAppUnicode},
+		menus.Separator(),
+		&menus.Item{Name: "Save Desktop...", Command: cmAppSaveDesktop},
+		&menus.Item{Name: "Load Desktop...", Command: cmAppLoadDesktop},
 	)
 	systemMenu := menus.NewMenu(
 		&menus.Item{Name: "~U~ptime", Command: cmAppUptime},

@@ -51,6 +51,12 @@ type LogViewer struct {
 	AutoScroll bool // when true, new entries scroll the view
 	MinLevel   Level
 
+	// levelEnabled[lv] reports whether entries at that level should
+	// be visible. Separate from MinLevel so callers can toggle
+	// individual levels (e.g., "show only Warn + Error") without
+	// re-juggling the threshold.
+	levelEnabled [4]bool
+
 	HScroll *views.ScrollBar
 	VScroll *views.ScrollBar
 }
@@ -63,6 +69,9 @@ func New(bounds geom.Rect, h, v *views.ScrollBar) *LogViewer {
 		AutoScroll: true,
 		HScroll:    h,
 		VScroll:    v,
+	}
+	for i := range l.levelEnabled {
+		l.levelEnabled[i] = true
 	}
 	l.SetSelf(l)
 	l.Options |= consts.OfSelectable
@@ -101,16 +110,50 @@ func (l *LogViewer) Clear() {
 }
 
 // SetMinLevel filters out entries below threshold (Debug < Info < Warn < Error).
-func (l *LogViewer) SetMinLevel(level Level) { l.MinLevel = level }
+func (l *LogViewer) SetMinLevel(level Level) {
+	l.MinLevel = level
+	for lv := range l.levelEnabled {
+		l.levelEnabled[lv] = Level(lv) >= level
+	}
+}
 
-// visibleCount returns how many entries pass the MinLevel filter.
+// SetFilter independently toggles which levels are visible. Use it
+// when you want to e.g. show only Warn + Error without affecting the
+// MinLevel-style threshold semantics. Passing nil clears all filters
+// (every level visible).
+func (l *LogViewer) SetFilter(enabled map[Level]bool) {
+	for lv := range l.levelEnabled {
+		if enabled == nil {
+			l.levelEnabled[lv] = true
+		} else {
+			l.levelEnabled[lv] = enabled[Level(lv)]
+		}
+	}
+}
+
+// HideDebug is the convenience that matches Pascal's HideDebug — turn
+// off DEBUG entries, leave the rest as-is.
+func (l *LogViewer) HideDebug() { l.levelEnabled[LevelDebug] = false }
+
+// ShowAll re-enables every level.
+func (l *LogViewer) ShowAll() {
+	for i := range l.levelEnabled {
+		l.levelEnabled[i] = true
+	}
+}
+
+// visibleCount returns how many entries pass the active filters.
 // Caller holds the mutex.
 func (l *LogViewer) visibleCount() int {
 	n := 0
 	for _, e := range l.entries {
-		if e.Level >= l.MinLevel {
-			n++
+		if e.Level < l.MinLevel {
+			continue
 		}
+		if int(e.Level) < len(l.levelEnabled) && !l.levelEnabled[e.Level] {
+			continue
+		}
+		n++
 	}
 	return n
 }
@@ -160,17 +203,18 @@ func (l *LogViewer) Draw() {
 	}
 }
 
-// visibleEntries returns the slice filtered by MinLevel. Caller holds
-// the mutex.
+// visibleEntries returns the slice filtered by MinLevel and the
+// levelEnabled bitmap. Caller holds the mutex.
 func (l *LogViewer) visibleEntries() []Entry {
-	if l.MinLevel == LevelDebug {
-		return l.entries
-	}
 	out := make([]Entry, 0, len(l.entries))
 	for _, e := range l.entries {
-		if e.Level >= l.MinLevel {
-			out = append(out, e)
+		if e.Level < l.MinLevel {
+			continue
 		}
+		if int(e.Level) < len(l.levelEnabled) && !l.levelEnabled[e.Level] {
+			continue
+		}
+		out = append(out, e)
 	}
 	return out
 }

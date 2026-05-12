@@ -42,6 +42,10 @@ type DataSource interface {
 	IsByteModified(pos int64) bool
 	IsModified() bool
 	ClearModified()
+	// Reload discards all in-memory edits and re-reads from the
+	// underlying storage. Sources that aren't file-backed should
+	// return a meaningful error rather than silently no-op.
+	Reload() error
 }
 
 // MemorySource is a DataSource backed by a Go byte slice. Tracks which
@@ -52,6 +56,9 @@ type MemorySource struct {
 	data     []byte
 	modified map[int64]bool
 	readOnly bool
+	// path is set by LoadFile; Reload re-reads from it. Empty for
+	// sources created via NewMemorySource directly.
+	path string
 }
 
 // NewMemorySource constructs a source seeded from data. The slice is
@@ -61,13 +68,38 @@ func NewMemorySource(data []byte) *MemorySource {
 	return &MemorySource{data: data, modified: map[int64]bool{}}
 }
 
-// LoadFile reads the entire file into a new MemorySource.
+// LoadFile reads the entire file into a new MemorySource. The path
+// is remembered so Reload re-reads from it without the caller having
+// to thread it through.
 func LoadFile(path string) (*MemorySource, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return NewMemorySource(b), nil
+	s := NewMemorySource(b)
+	s.path = path
+	return s, nil
+}
+
+// Reload re-reads the file the source was originally loaded from,
+// discarding all unsaved changes. Returns an error if the source
+// wasn't created via LoadFile (no path to re-read).
+func (m *MemorySource) Reload() error {
+	m.mu.Lock()
+	path := m.path
+	m.mu.Unlock()
+	if path == "" {
+		return fmt.Errorf("hexedit: source isn't file-backed; cannot reload")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.data = b
+	m.modified = map[int64]bool{}
+	m.mu.Unlock()
+	return nil
 }
 
 // SaveFile writes the source's bytes to path and clears modified state.
@@ -390,6 +422,16 @@ func (h *HexEditor) HandleEvent(ev *drivers.Event) {
 		} else {
 			h.Mode = ModeHex
 			h.HighNibble = true
+		}
+	case consts.KbCtrlR:
+		// Reload from disk (file-backed source only). Silently ignored
+		// when the source isn't file-backed.
+		_ = h.Source.Reload()
+		if h.Position >= h.Source.Size() {
+			h.Position = h.Source.Size() - 1
+			if h.Position < 0 {
+				h.Position = 0
+			}
 		}
 	default:
 		// Editing.

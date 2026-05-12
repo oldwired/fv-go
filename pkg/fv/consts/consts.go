@@ -110,6 +110,11 @@ const (
 	CmRecordHistory  uint16 = 60
 	CmGrabDefault    uint16 = 61
 	CmReleaseDefault uint16 = 62
+
+	// Editor-issued commands. CmEditorGoto: emitted on Ctrl+G so a
+	// host can pop a jump-to-line dialog. Tied to the editor that
+	// fired it via ev.InfoPtr.
+	CmEditorGoto uint16 = 63
 )
 
 // Help-context IDs used by the status line and dialogs.

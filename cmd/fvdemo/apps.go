@@ -8,7 +8,6 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/msgbox"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/editor"
-	"github.com/oldwired/fv-go/pkg/fv/widgets/grid"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/hexedit"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/stddlg"
 )
@@ -57,29 +56,16 @@ func showEditor(a *app.Application) {
 	a.Desktop.InsertWindow(win)
 }
 
-// showGrid opens a grid window with sample tabular data.
+// showGrid opens the full-featured grid demo: ~500 generated rows,
+// click-to-sort, filter row, frozen first column, validators on
+// numeric columns, and a toolbar with CSV load/save + row ops.
+// See cmd/fvdemo/apps_grid.go for the wrapper window.
 func showGrid(a *app.Application) {
-	win := views.NewWindow(geom.NewRect(1, 1, 70, 20), "Data Grid", 0)
-	w, h := win.Size.X, win.Size.Y
-	scroll := views.NewScrollBar(geom.NewRect(w-2, 1, w-1, h-1))
-	win.Insert(scroll)
-	g := grid.New(geom.NewRect(1, 1, w-2, h-1), []grid.Column{
-		{Title: "Name", Width: 20, Align: grid.AlignLeft},
-		{Title: "Qty", Width: 6, Align: grid.AlignRight},
-		{Title: "Price", Width: 10, Align: grid.AlignRight},
-		{Title: "Notes", Width: 30, Align: grid.AlignLeft},
-	}, nil, scroll)
-	g.SetRows([][]string{
-		{"Apples", "12", "$0.55", "Local farm"},
-		{"Bananas", "8", "$0.30", "Imported"},
-		{"Cherries", "100", "$3.20", "Seasonal"},
-		{"Dates", "20", "$5.00", "Medjool"},
-		{"Elderberry", "4", "$8.75", "For tinctures"},
-		{"Figs", "15", "$2.10", ""},
-		{"Grapes", "50", "$1.40", "Red seedless"},
-		{"Honeydew", "3", "$4.00", "Ripe"},
-	})
-	win.Insert(g)
+	win := newGridDemoWindow(a, geom.NewRect(1, 1, 108, 28))
+	// Insert the wrapper, not &win.Window — Desktop.Children stores the
+	// interface value and dispatches HandleEvent through it; passing the
+	// embedded *Window would call the base Window.HandleEvent and skip
+	// our toolbar / status / close-tracking override.
 	a.Desktop.InsertWindow(win)
 }
 
