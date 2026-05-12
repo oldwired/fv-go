@@ -434,7 +434,7 @@ func jitter(v, amp float64) float64 {
 // in a window sized to match the image's native pixel dimensions
 // (clamped to the desktop area, aspect ratio preserved). Cancel = no-op.
 func showImageViewOpen(a *app.Application) {
-	path, ok := stddlg.Show(&a.Desktop.Group, stddlg.ModeOpen, "Open Image",
+	path, ok := stddlg.ShowModern(&a.Desktop.Group, stddlg.ModeOpen, "Open Image",
 		"", "*")
 	if !ok {
 		return

@@ -395,19 +395,19 @@ func showTimedDlg(a *app.Application) {
 }
 
 func showFileOpen(a *app.Application) {
-	if path, ok := stddlg.Show(&a.Desktop.Group, stddlg.ModeOpen, "Open File", "", "*"); ok {
+	if path, ok := stddlg.ShowModern(&a.Desktop.Group, stddlg.ModeOpen, "Open File", "", "*"); ok {
 		msgbox.Showf(&a.Desktop.Group, msgbox.Info, "Opened: %s", []any{path}, msgbox.OKOnly)
 	}
 }
 
 func showFileSave(a *app.Application) {
-	if path, ok := stddlg.Show(&a.Desktop.Group, stddlg.ModeSave, "Save File", "", "*"); ok {
+	if path, ok := stddlg.ShowModern(&a.Desktop.Group, stddlg.ModeSave, "Save File", "", "*"); ok {
 		msgbox.Showf(&a.Desktop.Group, msgbox.Info, "Save to: %s", []any{path}, msgbox.OKOnly)
 	}
 }
 
 func showChangeDir(a *app.Application) {
-	if path, ok := stddlg.Show(&a.Desktop.Group, stddlg.ModeChangeDir, "Change Directory", "", "*"); ok {
+	if path, ok := stddlg.ShowModern(&a.Desktop.Group, stddlg.ModeChangeDir, "Change Directory", "", "*"); ok {
 		msgbox.Showf(&a.Desktop.Group, msgbox.Info, "Now in: %s", []any{path}, msgbox.OKOnly)
 	}
 }
