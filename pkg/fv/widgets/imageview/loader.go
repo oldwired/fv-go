@@ -7,8 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	// Register stdlib decoders. image.Decode dispatches by magic bytes
-	// once these have run their init() blocks.
+	// Register decoders. image.Decode dispatches by magic bytes once
+	// these have run their init() blocks — stdlib covers PNG/JPEG/GIF,
+	// x/image extends to BMP, TIFF, and WebP.
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -45,7 +49,7 @@ func LoadFile(path string) (image.Image, error) {
 // inside LoadFile via image.Decode.
 func IsLikelyImageFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".png", ".jpg", ".jpeg", ".gif":
+	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp":
 		return true
 	}
 	return false
