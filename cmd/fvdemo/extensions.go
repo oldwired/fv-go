@@ -5,13 +5,16 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/app"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/dialogs"
+	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/msgbox"
 	"github.com/oldwired/fv-go/pkg/fv/sixel"
@@ -32,6 +35,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/widgets/sixelcanvas"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/stddlg"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/syntax"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/terminal"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/uptime"
 )
 
@@ -54,10 +58,14 @@ const (
 	cmAppImageView
 	cmAppImageViewOpen
 	cmAppCanvas
+	cmAppTerminal
+	cmTerminalChildExited
 )
 
-// dispatchExtension routes the new menu items.
-func dispatchExtension(a *app.Application, cmd uint16) bool {
+// dispatchExtension routes the new menu items. The event is needed so
+// commands that carry InfoPtr (e.g. cmTerminalChildExited carrying a
+// *Window) can read it.
+func dispatchExtension(a *app.Application, cmd uint16, ev *drivers.Event) bool {
 	switch cmd {
 	case cmAppEditorWithGutter:
 		showEditorGutter(a)
@@ -91,6 +99,17 @@ func dispatchExtension(a *app.Application, cmd uint16) bool {
 		showImageViewOpen(a)
 	case cmAppCanvas:
 		showCanvas(a)
+	case cmAppTerminal:
+		showTerminal(a)
+	case cmTerminalChildExited:
+		// Custom event posted by the terminal view's OnExit goroutine.
+		// InfoPtr is the *Window to remove — we couldn't call Delete
+		// directly from a goroutine (the view tree isn't goroutine-safe).
+		// Routing it through the queue lets the main loop deliver the
+		// removal at a safe point.
+		if win, ok := ev.InfoPtr.(*views.Window); ok {
+			a.Desktop.Delete(win.Self())
+		}
 	default:
 		return false
 	}
@@ -446,6 +465,58 @@ func showImageViewOpen(a *app.Application) {
 	iv.SetImage(img)
 	win.Insert(iv)
 	a.Desktop.InsertWindow(win)
+}
+
+// showTerminal opens an embedded terminal running the user's $SHELL
+// (falling back to /bin/sh). The window auto-closes when the shell
+// exits, and the OSC 0/1/2 title — set by zsh / bash / vim / etc. —
+// becomes the window caption.
+func showTerminal(a *app.Application) {
+	flags := int(consts.WfMove | consts.WfClose | consts.WfGrow | consts.WfZoom)
+	win := views.NewWindow(geom.NewRect(2, 1, 82, 26), "Terminal", flags)
+	w, h := win.Size.X, win.Size.Y
+	t := terminal.New(geom.NewRect(1, 1, w-1, h-1))
+	win.Insert(t)
+	a.Desktop.InsertWindow(win)
+
+	// Diagnostic banner — proves the parser+renderer are alive even
+	// before any shell output arrives. Helpful when the shell itself
+	// is silent (login configs not running, broken $SHELL, …).
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	t.Write([]byte("\x1b[36m[fv-go terminal] launching " + shell + " …\x1b[0m\r\n"))
+
+	// Title updates: feed back into the window's caption.
+	t.OnTitle = func(title string) {
+		if title != "" {
+			win.SetTitle(title)
+		}
+	}
+	// Auto-close on child exit. We can't call Delete from the wait
+	// goroutine (the view tree isn't goroutine-safe), so post a custom
+	// command back through the event queue and let dispatchExtension
+	// handle it on the main loop.
+	t.OnExit = func(error) {
+		q := views.GetEventQueue()
+		if q != nil {
+			q.Put(drivers.Event{What: consts.EvCommand, Command: cmTerminalChildExited, InfoPtr: win})
+		}
+	}
+
+	// No args — let the shell auto-detect interactivity from the TTY.
+	// -i has been known to confuse zsh's startup on macOS when its
+	// config files run a non-trivial setup; plain `zsh` works.
+	if err := t.Start(shell, nil, nil); err != nil {
+		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
+			"Couldn't start %s:\n%s", []any{shell, err.Error()}, msgbox.OKOnly)
+		a.Desktop.Delete(win.Self())
+		return
+	}
+	if pid := t.PID(); pid != 0 {
+		t.Write([]byte("\x1b[2m[pid " + strconv.Itoa(pid) + "]\x1b[0m\r\n"))
+	}
 }
 
 // showCanvas opens a SixelCanvasView with a bouncing-balls animation

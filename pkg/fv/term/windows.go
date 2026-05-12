@@ -82,6 +82,7 @@ func (b *winBackend) Init() error {
 		"\x1b[?1049h", "\x1b[?25l",
 		"\x1b[?1000h", "\x1b[?1002h", "\x1b[?1006h",
 		"\x1b[?2004h", "\x1b[?1004h",
+		"\x1b]22;default\x07", // mouse cursor: OS default arrow (WT honors OSC 22)
 	}
 	if _, err := b.out.WriteString(strings.Join(io, "")); err != nil {
 		return err
@@ -107,6 +108,7 @@ func (b *winBackend) Close() error {
 	}
 	if b.out != nil {
 		_, _ = b.out.WriteString(strings.Join([]string{
+			"\x1b]22;\x07", // restore mouse cursor default
 			"\x1b[?1004l", "\x1b[?2004l",
 			"\x1b[?1006l", "\x1b[?1002l", "\x1b[?1000l",
 			"\x1b[?25h", "\x1b[0m", "\x1b[?1049l",

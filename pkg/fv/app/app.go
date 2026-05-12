@@ -280,11 +280,13 @@ func (p *Program) pump() bool {
 // at least one ticker it caps at the smallest interval so animations
 // stay responsive while idle.
 //
-// Pumping an event does NOT set dirty here — the dirty flag is set by
-// the caller after it actually handles the event (Run sets it directly,
-// modal loops call views.MarkDirty()). Setting it here too would cause
-// a stale extra draw between waitOne returning and the event being
-// dispatched.
+// Setting dirty=true on every pumped event is intentional belt-and-
+// braces: modal loops + the main Run loop also MarkDirty after they
+// hand the event off, but a previous attempt at "dirty only on handle"
+// regressed menu interaction (a click → activate → modal-return path
+// could land on the user's screen without an intervening repaint of
+// the popup state, so the user saw "click twice"). One extra draw per
+// input event is a fair trade for never missing one.
 //
 // The timer is reused across calls to avoid allocating one per wake
 // (anim intervals as low as 50ms otherwise mean 20 timers/sec of GC
@@ -309,6 +311,7 @@ func (p *Program) waitOne() {
 			}
 			if e := drivers.FromTermEvent(te); e.What != 0 {
 				p.queue.Put(e)
+				p.dirty = true
 			}
 		case <-p.waitTimer.C:
 		}
@@ -320,6 +323,7 @@ func (p *Program) waitOne() {
 	}
 	if e := drivers.FromTermEvent(te); e.What != 0 {
 		p.queue.Put(e)
+		p.dirty = true
 	}
 }
 

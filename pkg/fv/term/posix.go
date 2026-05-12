@@ -60,14 +60,22 @@ func (b *posixBackend) Init() error {
 	b.enc = newSGREncoder(prof.ColorSystem)
 
 	// Switch to alt screen, hide cursor, enable mouse + paste, save originals.
+	//
+	// OSC 22 ; default ST overrides the host terminal's default mouse-
+	// cursor shape (typically I-beam, since terminals are text-first)
+	// with the OS default — usually the arrow on macOS / Windows /
+	// most Linux DEs. iTerm2, WezTerm, kitty, and Windows Terminal
+	// (recent builds) all honor this. Older terminals silently ignore
+	// the OSC, which is fine — they keep showing the I-beam.
 	io := []string{
-		"\x1b[?1049h", // alt screen
-		"\x1b[?25l",   // hide cursor
-		"\x1b[?1000h", // X10 mouse: button down/up
-		"\x1b[?1002h", // cell-motion mouse: motion while a button is held
-		"\x1b[?1006h", // SGR-1006 extended-coordinates encoding
-		"\x1b[?2004h", // bracketed paste
-		"\x1b[?1004h", // focus events
+		"\x1b[?1049h",         // alt screen
+		"\x1b[?25l",           // hide cursor
+		"\x1b[?1000h",         // X10 mouse: button down/up
+		"\x1b[?1002h",         // cell-motion mouse: motion while a button is held
+		"\x1b[?1006h",         // SGR-1006 extended-coordinates encoding
+		"\x1b[?2004h",         // bracketed paste
+		"\x1b[?1004h",         // focus events
+		"\x1b]22;default\x07", // mouse cursor: OS default (arrow)
 	}
 	if _, err := b.out.WriteString(strings.Join(io, "")); err != nil {
 		_ = xterm.Restore(int(b.in.Fd()), b.prevTerm)
@@ -106,8 +114,9 @@ func (b *posixBackend) Close() error {
 	}
 	// restore terminal state (best effort, in order)
 	_, _ = b.out.WriteString(strings.Join([]string{
-		"\x1b[?1004l", // focus events off
-		"\x1b[?2004l", // bracketed paste off
+		"\x1b]22;\x07", // mouse cursor: clear override (restores terminal default)
+		"\x1b[?1004l",  // focus events off
+		"\x1b[?2004l",  // bracketed paste off
 		"\x1b[?1006l",
 		"\x1b[?1002l", // cell-motion off
 		"\x1b[?1000l",

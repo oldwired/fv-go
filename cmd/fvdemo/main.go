@@ -47,7 +47,7 @@ func main() {
 		if dispatchApp(a, cmd) {
 			return true
 		}
-		if dispatchExtension(a, cmd) {
+		if dispatchExtension(a, cmd, ev) {
 			return true
 		}
 		switch cmd {
@@ -130,6 +130,7 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 		&menus.Item{Name: "~I~mage View", Command: cmAppImageView},
 		&menus.Item{Name: "Image View (~O~pen...)", Command: cmAppImageViewOpen},
 		&menus.Item{Name: "Sixel ~C~anvas", Command: cmAppCanvas},
+		&menus.Item{Name: "T~e~rminal", Command: cmAppTerminal},
 	)
 	systemMenu := menus.NewMenu(
 		&menus.Item{Name: "~U~ptime", Command: cmAppUptime},

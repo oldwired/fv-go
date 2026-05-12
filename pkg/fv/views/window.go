@@ -270,7 +270,15 @@ func (w *Window) Number() int { return w.number }
 // HandleEvent extends Group with title-bar drag, close-box and zoom-box
 // click handling, click-to-raise for non-modal windows, and the window
 // commands cmClose / cmZoom.
+//
+// At the end of mouse handling we always consume the event if no
+// inner child claimed it — otherwise clicks on the upper of two
+// overlapping windows fall through to the one below in the parent's
+// dispatch loop (which iterates back-to-front but doesn't stop until
+// a child sets EvNothing). A window in front of another should block
+// clicks even on its empty body cells.
 func (w *Window) HandleEvent(ev *drivers.Event) {
+	wasMouse := ev.What&consts.EvMouse != 0
 	if ev.What == consts.EvMouseDown {
 		local := w.MakeLocal(ev.Where)
 		// Close box: cells 2..4 on row 0. Acts directly on this window
@@ -322,6 +330,13 @@ func (w *Window) HandleEvent(ev *drivers.Event) {
 			w.zoom()
 			w.ClearEvent(ev)
 		}
+	}
+	// Block click-through to windows beneath us. The dispatch loop in
+	// Group.HandleEvent only stops when ev.What == EvNothing; we have
+	// to be the one that sets it, since the original mouse event might
+	// have hit one of our blank body cells (no inner view to claim it).
+	if wasMouse && ev.What&consts.EvMouse != 0 {
+		w.ClearEvent(ev)
 	}
 }
 
