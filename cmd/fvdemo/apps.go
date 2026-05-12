@@ -61,7 +61,7 @@ func showEditor(a *app.Application) {
 // numeric columns, and a toolbar with CSV load/save + row ops.
 // See cmd/fvdemo/apps_grid.go for the wrapper window.
 func showGrid(a *app.Application) {
-	win := newGridDemoWindow(a, geom.NewRect(1, 1, 108, 28))
+	win := newGridDemoWindow(a, geom.NewRect(1, 1, 118, 30))
 	// Insert the wrapper, not &win.Window — Desktop.Children stores the
 	// interface value and dispatches HandleEvent through it; passing the
 	// embedded *Window would call the base Window.HandleEvent and skip

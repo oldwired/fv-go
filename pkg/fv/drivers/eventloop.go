@@ -53,6 +53,18 @@ func FromTermEvent(t term.Event) Event {
 		e.Buttons = t.Mouse.Buttons
 		e.Where = t.Mouse.Where
 		e.DoubleClk = t.Mouse.Double
+		// Modifier bits travel on every mouse event, so view code
+		// can read Shift/Ctrl/Alt+click the same way it reads them
+		// off a keyboard event.
+		if t.Mods.Has(term.ModShift) {
+			e.KeyShift |= consts.KbLeftShift
+		}
+		if t.Mods.Has(term.ModAlt) {
+			e.KeyShift |= consts.KbAltShift
+		}
+		if t.Mods.Has(term.ModCtrl) {
+			e.KeyShift |= consts.KbCtrlShift
+		}
 	case term.EventResize:
 		e.What = consts.EvCommand
 		e.Command = consts.CmResizeApp

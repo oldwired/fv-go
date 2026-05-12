@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/oldwired/fv-go/pkg/fv/app"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
@@ -30,6 +31,10 @@ const (
 	cmGridDemoResetSort
 	cmGridDemoCopy
 	cmGridDemoStats
+	cmGridDemoFind
+	cmGridDemoSettings
+	cmGridDemoAutoFit
+	cmGridDemoPaste
 )
 
 // gridDemoWindow wraps a Window with our grid + toolbar buttons. The
@@ -73,8 +78,24 @@ func newGridDemoWindow(a *app.Application, bounds geom.Rect) *gridDemoWindow {
 	g.ShowFilter = true
 	g.ShowRowMarker = true
 	g.FixedCols = 1
+	g.FixedRows = 2
 	g.Mode = grid.SelectRange
 	g.SetRows(generateGridDemoRows(500))
+	// Mark "out of stock" rows so the user can spot them at a glance.
+	// OnCellAttr fires for every painted cell; we only override when
+	// the In Stock column reads "No" and otherwise return 0 to leave
+	// the base attribute untouched.
+	g.OnCellAttr = func(row, col int, base uint16) uint16 {
+		if g.Cell(row, 5) == "No" {
+			return 0x0C | (base & 0xFF00) // bright red fg, keep bg
+		}
+		return 0
+	}
+	// Keep the window title in sync with the Modified flag so the
+	// user has the standard "*" hint when there are unsaved edits.
+	g.OnAfterEdit = func(row, col int, oldVal, newVal string) {
+		w.refreshTitle()
+	}
 	w.Insert(g)
 	w.grid = g
 
@@ -114,10 +135,11 @@ func (w *gridDemoWindow) layoutToolbar(y int) {
 	add("~A~dd", cmGridDemoAddRow)
 	add("~D~el", cmGridDemoDelRow)
 	add("Cop~y~", cmGridDemoCopy)
-	add("Clear ~F~ilt", cmGridDemoClearFilters)
-	add("~T~oggle Filt", cmGridDemoToggleFilter)
+	add("~P~aste", cmGridDemoPaste)
+	add("Fi~n~d", cmGridDemoFind)
+	add("Aut~o~-fit", cmGridDemoAutoFit)
 	add("~R~eset Sort", cmGridDemoResetSort)
-	add("S~t~ats", cmGridDemoStats)
+	add("Set~t~ings", cmGridDemoSettings)
 }
 
 // stripAmp removes hotkey markers (`~X~`) from a label so we can
@@ -185,10 +207,24 @@ func (w *gridDemoWindow) HandleEvent(ev *drivers.Event) {
 		w.doDelete()
 	case cmGridDemoCopy:
 		w.grid.CopySelection()
+	case cmGridDemoPaste:
+		w.grid.PasteClipboard()
+	case cmGridDemoFind:
+		// Same prompt path Ctrl+F uses internally — exposed as a
+		// button so the feature is discoverable without keystrokes.
+		needle, ok := promptStringDemo(&w.app.Desktop.Group, "Find", "Search for:", w.grid.FindText)
+		if ok {
+			w.grid.SetFind(needle)
+			w.grid.FindNext(1)
+		}
+	case cmGridDemoAutoFit:
+		w.grid.AutoFitAll()
+	case cmGridDemoSettings:
+		w.showSettings()
 	case cmGridDemoToggleFilter:
 		w.grid.ShowFilter = !w.grid.ShowFilter
 	case cmGridDemoResetSort:
-		w.grid.Sort(-1, grid.SortNone)
+		w.grid.ClearSort()
 	case cmGridDemoStats:
 		w.showStats()
 	default:
@@ -209,17 +245,27 @@ func (w *gridDemoWindow) refreshStatus() {
 	visible := w.grid.RowCount()
 	total := w.grid.RawRowCount()
 	sortHint := "unsorted"
-	if w.grid.SortCol >= 0 && w.grid.SortCol < len(w.grid.Columns) {
-		dir := "asc"
-		if w.grid.SortDir == grid.SortDesc {
-			dir = "desc"
+	if len(w.grid.SortKeys) > 0 {
+		parts := make([]string, 0, len(w.grid.SortKeys))
+		for _, k := range w.grid.SortKeys {
+			if k.Col < 0 || k.Col >= len(w.grid.Columns) {
+				continue
+			}
+			dir := "↑"
+			if k.Dir == grid.SortDesc {
+				dir = "↓"
+			}
+			parts = append(parts, fmt.Sprintf("%s%s", w.grid.Columns[k.Col].Title, dir))
 		}
-		sortHint = fmt.Sprintf("sorted by %s %s",
-			w.grid.Columns[w.grid.SortCol].Title, dir)
+		sortHint = "sorted: " + strings.Join(parts, " · ")
+	}
+	mod := ""
+	if w.grid.Modified {
+		mod = " · modified"
 	}
 	w.stat.Text = fmt.Sprintf(
-		"Rows: %d shown / %d total  ·  Focus: (%d, %d)  ·  %s",
-		visible, total, w.grid.Focus.Row, w.grid.Focus.Col, sortHint)
+		"Rows: %d shown / %d total  ·  Focus: (%d, %d)  ·  %s%s",
+		visible, total, w.grid.Focus.Row, w.grid.Focus.Col, sortHint, mod)
 	views.MarkDirty()
 }
 
@@ -239,7 +285,10 @@ func (w *gridDemoWindow) doSave() {
 	if err := w.grid.SaveCSV(f, grid.CSVOptions{IncludeHeader: true}); err != nil {
 		msgbox.Showf(&w.app.Desktop.Group, msgbox.Error,
 			"Save failed: %s", []any{err.Error()}, msgbox.OKOnly)
+		return
 	}
+	w.grid.ClearModified()
+	w.refreshTitle()
 }
 
 func (w *gridDemoWindow) doLoad() {
@@ -261,7 +310,10 @@ func (w *gridDemoWindow) doLoad() {
 	}); err != nil {
 		msgbox.Showf(&w.app.Desktop.Group, msgbox.Error,
 			"Load failed: %s", []any{err.Error()}, msgbox.OKOnly)
+		return
 	}
+	w.grid.ClearModified()
+	w.refreshTitle()
 }
 
 // doAddRow appends a blank row and moves the focus to it. If a sort
@@ -297,6 +349,113 @@ func (w *gridDemoWindow) doDelete() {
 		return
 	}
 	w.grid.RemoveRow(raw)
+}
+
+// refreshTitle re-renders the window title so the "*" prefix matches
+// the grid's Modified flag. Called from OnAfterEdit and after Save /
+// Load. Keeps the standard editor convention without any extra state.
+func (w *gridDemoWindow) refreshTitle() {
+	base := "Data Grid — full demo"
+	if w.grid != nil && w.grid.Modified {
+		base = "*" + base
+	}
+	w.SetTitle(base)
+	views.MarkDirty()
+}
+
+// showSettings pops a checkbox dialog that drives every toggleable
+// grid feature in one place. Each checkbox round-trips one grid flag
+// so a user can flip features on or off without keystroke hunting.
+func (w *gridDemoWindow) showSettings() {
+	items := []string{
+		"Header",
+		"Header underline",
+		"Filter row",
+		"Row marker",
+		"Grid lines",
+		"Zebra stripes",
+		"Read-only",
+		"Allow resize",
+		"Allow reorder",
+		"Allow drag-select",
+		"Allow wheel scroll",
+	}
+	var initial uint32
+	g := w.grid
+	if g.HasHeader {
+		initial |= 1 << 0
+	}
+	if g.ShowHeaderUnderline {
+		initial |= 1 << 1
+	}
+	if g.ShowFilter {
+		initial |= 1 << 2
+	}
+	if g.ShowRowMarker {
+		initial |= 1 << 3
+	}
+	if g.ShowGridLines {
+		initial |= 1 << 4
+	}
+	if g.ShowZebra {
+		initial |= 1 << 5
+	}
+	if g.ReadOnly {
+		initial |= 1 << 6
+	}
+	if g.AllowResize {
+		initial |= 1 << 7
+	}
+	if g.AllowReorder {
+		initial |= 1 << 8
+	}
+	if g.AllowDragSelect {
+		initial |= 1 << 9
+	}
+	if g.AllowWheelScroll {
+		initial |= 1 << 10
+	}
+
+	d := dialogs.NewDialog(geom.NewRect(0, 0, 40, 17), "Grid settings")
+	cb := dialogs.NewCheckBoxes(geom.NewRect(2, 2, 38, 13), items)
+	cb.Value = initial
+	d.Insert(cb)
+	d.Insert(dialogs.NewButton(geom.NewRect(10, 14, 20, 16), "O~K~", consts.CmOK, dialogs.BfDefault))
+	d.Insert(dialogs.NewButton(geom.NewRect(22, 14, 32, 16), "Cancel", consts.CmCancel, dialogs.BfNormal))
+	if w.app.Desktop.ExecView(d) != consts.CmOK {
+		return
+	}
+	g.HasHeader = cb.Value&(1<<0) != 0
+	g.ShowHeaderUnderline = cb.Value&(1<<1) != 0
+	g.ShowFilter = cb.Value&(1<<2) != 0
+	g.ShowRowMarker = cb.Value&(1<<3) != 0
+	g.ShowGridLines = cb.Value&(1<<4) != 0
+	g.ShowZebra = cb.Value&(1<<5) != 0
+	g.ReadOnly = cb.Value&(1<<6) != 0
+	g.AllowResize = cb.Value&(1<<7) != 0
+	g.AllowReorder = cb.Value&(1<<8) != 0
+	g.AllowDragSelect = cb.Value&(1<<9) != 0
+	g.AllowWheelScroll = cb.Value&(1<<10) != 0
+	views.MarkDirty()
+}
+
+// promptStringDemo wraps the grid's own promptString equivalent for
+// use from the demo's button handlers. Duplicates the small dialog
+// rather than exporting the grid helper — the grid one would force
+// callers to import dialogs through a public symbol.
+func promptStringDemo(host *views.Group, title, prompt, initial string) (string, bool) {
+	d := dialogs.NewDialog(geom.NewRect(0, 0, 48, 8), title)
+	d.Insert(dialogs.NewStaticText(geom.NewRect(2, 2, 46, 3), prompt))
+	il := dialogs.NewInputLine(geom.NewRect(2, 3, 46, 4), 256)
+	il.Data = []rune(initial)
+	il.CurPos = len(il.Data)
+	d.Insert(il)
+	d.Insert(dialogs.NewButton(geom.NewRect(20, 5, 30, 7), "O~K~", consts.CmOK, dialogs.BfDefault))
+	d.Insert(dialogs.NewButton(geom.NewRect(31, 5, 41, 7), "Cancel", consts.CmCancel, dialogs.BfNormal))
+	if host.ExecView(d) != consts.CmOK {
+		return "", false
+	}
+	return string(il.Data), true
 }
 
 func (w *gridDemoWindow) showStats() {

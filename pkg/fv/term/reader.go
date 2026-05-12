@@ -459,6 +459,10 @@ func parseSGRMouse(params string, pressed bool, consumed int) (Event, int, bool)
 	ev.Mouse.Pressed = pressed
 	ev.Mouse.Released = !pressed
 	ev.Mouse.Motion = bcode&32 != 0
+	// xterm SGR mouse: bits 2/3/4 encode Shift / Meta / Ctrl held
+	// when the click happened. Plumb them through so view code can
+	// treat Shift+click etc. like the corresponding keyboard chord.
+	ev.Mods = sgrMouseMods(bcode)
 	bbtn := bcode & 0x03
 	switch bbtn {
 	case 0:
@@ -490,6 +494,7 @@ func parseX10Mouse(b, x, y byte) Event {
 	ev.Mouse.Pressed = (bcode & 0x03) != 3
 	ev.Mouse.Released = (bcode & 0x03) == 3
 	ev.Mouse.Motion = bcode&32 != 0
+	ev.Mods = sgrMouseMods(bcode)
 	switch bcode & 0x03 {
 	case 0:
 		ev.Mouse.Buttons = 0x01
@@ -499,6 +504,23 @@ func parseX10Mouse(b, x, y byte) Event {
 		ev.Mouse.Buttons = 0x02
 	}
 	return ev
+}
+
+// sgrMouseMods decodes the standard xterm modifier bits (Shift = 4,
+// Meta/Alt = 8, Ctrl = 16) into ModBits. Same encoding for SGR and
+// legacy X10 reports, so this helper is shared.
+func sgrMouseMods(bcode int) ModBits {
+	var m ModBits
+	if bcode&0x04 != 0 {
+		m |= ModShift
+	}
+	if bcode&0x08 != 0 {
+		m |= ModAlt
+	}
+	if bcode&0x10 != 0 {
+		m |= ModCtrl
+	}
+	return m
 }
 
 func splitOff(s string, sep byte) (head, tail string) {
