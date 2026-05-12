@@ -1,9 +1,94 @@
 package terminal
 
 import (
+	"strconv"
+
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 )
+
+// encodeMouseSGR formats one FV mouse event as an SGR-1006 escape
+// sequence: "\x1b[<b;x;y M" for press / motion, "\x1b[<b;x;y m" for
+// release. b is the xterm button code (0=left, 1=middle, 2=right,
+// 32 added for motion, 64+ for wheel). Coordinates are 1-based.
+//
+// Returns "" when the event isn't a meaningful mouse signal (e.g.,
+// motion without any button held when only ?1002 is enabled — but we
+// filter those out at the call site, so we never see them here).
+//
+// We always emit SGR-1006 format even when the inner program asked
+// for the older X10 / extended encodings; modern shells universally
+// understand 1006, and supporting the legacy fixed-width-byte format
+// would mean failing on coords > 223 anyway. If a program insists on
+// X10 (sgr1006=false), we still emit 1006 — empirically it's the
+// more reliable choice.
+func encodeMouseSGR(ev *drivers.Event, x, y int, _ bool) string {
+	b := mouseButtonCode(ev)
+	if b < 0 {
+		return ""
+	}
+	final := byte('M')
+	if ev.What == consts.EvMouseUp {
+		final = 'm'
+	}
+	var sb [32]byte
+	out := sb[:0]
+	out = append(out, '\x1b', '[', '<')
+	out = strconv.AppendInt(out, int64(b), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(x+1), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(y+1), 10)
+	out = append(out, final)
+	return string(out)
+}
+
+// mouseButtonCode returns the xterm button-code byte for an event, or
+// -1 if no button bit is set on a press/release. Motion events use
+// the bottom-most button currently considered "pressed" by FV.
+func mouseButtonCode(ev *drivers.Event) int {
+	// Wheel events get distinct codes regardless of motion.
+	if ev.Buttons&consts.MbScrollWheelUp != 0 {
+		return 64
+	}
+	if ev.Buttons&consts.MbScrollWheelDown != 0 {
+		return 65
+	}
+	b := -1
+	switch {
+	case ev.Buttons&consts.MbLeftButton != 0:
+		b = 0
+	case ev.Buttons&consts.MbMiddleButton != 0:
+		b = 1
+	case ev.Buttons&consts.MbRightButton != 0:
+		b = 2
+	}
+	if b < 0 && ev.What == consts.EvMouseUp {
+		// Release with no specific button still reports "release of
+		// whatever was held" — code 0 is the conventional default.
+		b = 0
+	}
+	if b < 0 && ev.What == consts.EvMouseMove {
+		b = 3 // "motion with no button"
+	}
+	if b < 0 {
+		return -1
+	}
+	if ev.What == consts.EvMouseMove {
+		b |= 32 // xterm motion bit
+	}
+	// Modifier bits.
+	if ev.KeyShift&consts.KbLeftShift != 0 {
+		b |= 4
+	}
+	if ev.KeyShift&consts.KbAltShift != 0 {
+		b |= 8
+	}
+	if ev.KeyShift&consts.KbCtrlShift != 0 {
+		b |= 16
+	}
+	return b
+}
 
 // keyToBytes translates one FV key event into the byte sequence the
 // PTY child expects. Returns nil for events that shouldn't be sent
@@ -28,6 +113,11 @@ func keyToBytes(ev *drivers.Event) []byte {
 		return []byte{0x7F}
 	case consts.KbEsc:
 		return []byte{0x1B}
+	case consts.KbSpaceBar:
+		// Space is emitted by the reader as a named Key (not a Rune),
+		// so the UnicodeChar fall-through below doesn't fire. Without
+		// this case, the space bar is silently dropped.
+		return []byte{' '}
 	case consts.KbUp:
 		return []byte("\x1b[A")
 	case consts.KbDown:

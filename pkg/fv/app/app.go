@@ -29,8 +29,10 @@ type Program struct {
 	backend   term.Backend
 	queue     *drivers.Queue
 	quit      bool
-	dirty     bool        // set when an event/anim/etc. has changed state and a redraw is owed
-	waitTimer *time.Timer // reused across waitOne() calls to skip per-wake allocation
+	dirty     bool          // set when an event/anim/etc. has changed state and a redraw is owed
+	waitTimer *time.Timer   // reused across waitOne() calls to skip per-wake allocation
+	wake      chan struct{} // signaled by MarkDirty from goroutines so waitOne returns
+	// without needing a fresh user keystroke (PTY output, async data, …).
 
 	// OnCommand, if non-nil, is invoked for every EvCommand event the
 	// view tree didn't consume. Returning true marks the command as
@@ -43,6 +45,7 @@ func NewProgram(backend term.Backend) *Program {
 	cols, rows := backend.Size()
 	bounds := geom.NewRect(0, 0, cols, rows)
 	p := &Program{backend: backend}
+	p.wake = make(chan struct{}, 1)
 	views.InitGroup(&p.Group, bounds)
 	p.SetSelf(p)
 	p.GrowMode = consts.GfGrowAll
@@ -50,7 +53,16 @@ func NewProgram(backend term.Backend) *Program {
 	views.SetEventQueue(p.queue)
 	views.SetPump(p.idle)
 	views.SetWait(p.waitOne)
-	views.SetMarkDirty(func() { p.dirty = true })
+	views.SetMarkDirty(func() {
+		p.dirty = true
+		// Non-blocking nudge to wake waitOne if it's parked. We don't
+		// care about coalescing — a full buffer means a wake is
+		// already pending, which is exactly what we want.
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+	})
 	views.SetRootBackend(backend)
 	return p
 }
@@ -65,6 +77,15 @@ func (p *Program) GetTypeID() string { return "program" }
 // embedded Group dispatch so other views can react.
 func (p *Program) HandleEvent(ev *drivers.Event) {
 	if ev.What == consts.EvKeyDown {
+		// Skip global shortcut translation if the focused view chain
+		// claims raw keyboard (Terminal does this so Ctrl+C reaches
+		// the embedded shell as SIGINT instead of being eaten as a
+		// Copy command). We still let F1/F5/etc. through to be
+		// captured if no raw-key view is in focus.
+		if p.focusWantsRawKeys() {
+			p.Group.HandleEvent(ev)
+			return
+		}
 		var emit uint16
 		var info int16
 		switch ev.KeyCode {
@@ -118,6 +139,30 @@ func (p *Program) HandleEvent(ev *drivers.Event) {
 		}
 	}
 	p.Group.HandleEvent(ev)
+}
+
+// focusWantsRawKeys walks the focus chain looking for any view with
+// SfRawKeys set in its State. Terminal sets this when it has focus so
+// embedded shells get Ctrl+C / Ctrl+X / Ctrl+V / F-keys instead of
+// our clipboard and window-management shortcuts.
+func (p *Program) focusWantsRawKeys() bool {
+	type currenter interface{ Current() views.View }
+	var v views.View = p
+	for {
+		bv := v.BaseView()
+		if bv != nil && bv.State&consts.SfRawKeys != 0 {
+			return true
+		}
+		c, ok := v.(currenter)
+		if !ok {
+			return false
+		}
+		next := c.Current()
+		if next == nil || next == v {
+			return false
+		}
+		v = next
+	}
 }
 
 // SetMenuBar inserts a menu bar above the desktop.
@@ -218,10 +263,17 @@ func (p *Program) idle() {
 	if !p.dirty && !pumped && !animDirty {
 		return
 	}
+	// Clear the flag BEFORE drawing, not after. If a goroutine (e.g.,
+	// the Terminal view's PTY read loop) fires MarkDirty while we're
+	// in the middle of a draw, we want the mark to survive into the
+	// next idle. Clearing at the end would stomp it, and the wake
+	// channel would unblock waitOne only for idle to find dirty=false
+	// and skip — manifesting as "typed character only appears after
+	// the next keystroke".
+	p.dirty = false
 	p.draw()
 	p.preFlush()
 	_ = p.backend.Flush()
-	p.dirty = false
 }
 
 // preFlush walks the view tree calling PreFlush on any view that
@@ -314,16 +366,23 @@ func (p *Program) waitOne() {
 				p.dirty = true
 			}
 		case <-p.waitTimer.C:
+		case <-p.wake:
+			// Async MarkDirty (e.g., Terminal's PTY read goroutine
+			// got new output) — return so the next idle() can draw.
 		}
 		return
 	}
-	te, alive := <-p.backend.Events()
-	if !alive {
-		return
-	}
-	if e := drivers.FromTermEvent(te); e.What != 0 {
-		p.queue.Put(e)
-		p.dirty = true
+	select {
+	case te, alive := <-p.backend.Events():
+		if !alive {
+			return
+		}
+		if e := drivers.FromTermEvent(te); e.What != 0 {
+			p.queue.Put(e)
+			p.dirty = true
+		}
+	case <-p.wake:
+		// See above.
 	}
 }
 

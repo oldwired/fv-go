@@ -37,6 +37,13 @@ type ImageView struct {
 	Image    image.Image
 	UseSixel bool // honored only when sixel.IsSupported(); otherwise we half-block
 
+	// Quality selects the SIXEL encoder. true = median-cut + Floyd-
+	// Steinberg dither (good for photos, ~hundreds of ms one-shot);
+	// false = 216-color realtime cube (instant, bands on gradients).
+	// Result is cached so the per-frame cost stays at one DCS write.
+	Quality       bool
+	QualityColors int // palette size for the quality encoder (default 128)
+
 	// Pan offsets (image pixels from the top-left).
 	OffsetX, OffsetY int
 
@@ -47,6 +54,13 @@ type ImageView struct {
 	// Background color for cells outside the image / half-block bottom
 	// when the image height is odd.
 	BG uint32
+
+	// Cached encoded DCS — re-computed only when image or pixel
+	// dimensions change. Quality encoding is expensive enough that
+	// per-frame re-encoding would noticeably lag the UI.
+	cachedDCS string
+	cachedW   int
+	cachedH   int
 }
 
 // New constructs an ImageView at bounds with no image loaded yet.
@@ -55,10 +69,12 @@ type ImageView struct {
 // supporting image to a non-SIXEL terminal still draws (as half-block).
 func New(bounds geom.Rect) *ImageView {
 	iv := &ImageView{
-		Base:     views.NewBase(bounds),
-		UseSixel: sixel.IsSupported(),
-		Zoom:     1,
-		BG:       0x010101, // not 0 (which means "use palette") — near-black
+		Base:          views.NewBase(bounds),
+		UseSixel:      sixel.IsSupported(),
+		Quality:       true,
+		QualityColors: 128,
+		Zoom:          1,
+		BG:            0x010101, // not 0 (which means "use palette") — near-black
 	}
 	iv.SetSelf(iv)
 	iv.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
@@ -70,11 +86,12 @@ func New(bounds geom.Rect) *ImageView {
 // GetTypeID for serial registry.
 func (iv *ImageView) GetTypeID() string { return "imageview" }
 
-// SetImage attaches img and resets pan/zoom.
+// SetImage attaches img and resets pan/zoom and the encoded cache.
 func (iv *ImageView) SetImage(img image.Image) {
 	iv.Image = img
 	iv.OffsetX, iv.OffsetY = 0, 0
 	iv.Zoom = 1
+	iv.cachedDCS = ""
 }
 
 // HandleEvent implements basic pan/zoom controls:
@@ -279,8 +296,16 @@ func (iv *ImageView) PreFlush(b views.RootBackend) {
 	if pxW <= 0 || pxH <= 0 {
 		return
 	}
-	canvas := fitImageToCanvas(iv.Image, pxW, pxH, iv.BG)
-	dcs := sixel.EncodeRealtime(canvas, 1)
+	if iv.cachedDCS == "" || iv.cachedW != pxW || iv.cachedH != pxH {
+		canvas := fitImageToCanvas(iv.Image, pxW, pxH, iv.BG)
+		if iv.Quality {
+			iv.cachedDCS = sixel.EncodeQuality(canvas, iv.QualityColors)
+		} else {
+			iv.cachedDCS = sixel.EncodeRealtime(canvas, 1)
+		}
+		iv.cachedW, iv.cachedH = pxW, pxH
+	}
+	dcs := iv.cachedDCS
 	if dcs == "" {
 		return
 	}

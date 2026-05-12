@@ -55,7 +55,11 @@ func New(bounds geom.Rect) *Terminal {
 	t.SetSelf(t)
 	t.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
 	t.Options |= consts.OfSelectable
-	t.EventMask = consts.EvKeyDown | consts.EvCommand
+	t.EventMask = consts.EvKeyDown | consts.EvCommand | consts.EvMouseDown | consts.EvMouseUp | consts.EvMouseMove
+	// Claim raw keyboard so Program.HandleEvent doesn't fold Ctrl+C
+	// into Copy etc. while we're focused. Ctrl+C, Ctrl+X, Ctrl+V,
+	// and the F-keys reach the inner shell instead.
+	t.State |= consts.SfRawKeys
 	t.buf = newBuffer(t.Size.X, t.Size.Y)
 	t.par = newParser(t.buf)
 	// IMPORTANT: OnTitle fires from inside par.Feed, which is always
@@ -161,27 +165,136 @@ func (t *Terminal) waitLoop() {
 	views.MarkDirty()
 }
 
-// HandleEvent forwards key events to the PTY as ANSI byte sequences.
-// CmClose triggers Stop() so a window close button reliably tears
-// down the child process instead of leaking a zombie.
+// HandleEvent dispatches FV events:
+//
+//   - CmClose triggers Stop() so a window close button reliably tears
+//     down the child process instead of leaking a zombie.
+//   - Shift+PageUp / Shift+PageDn / Home / End scroll the scrollback
+//     view. Plain PageUp/Dn go to the PTY (apps like less expect them).
+//   - Mouse wheel scrolls the scrollback when there's history to show;
+//     otherwise the wheel falls through to mouse forwarding.
+//   - Other key events translate to ANSI bytes and write to the PTY.
+//     Any keystroke snaps the viewport back to the live cursor.
+//   - Mouse events forward to the PTY as SGR-1006 sequences, but only
+//     when the inner program has enabled a mouse-tracking DEC mode.
 func (t *Terminal) HandleEvent(ev *drivers.Event) {
 	if ev.What == consts.EvCommand && ev.Command == consts.CmClose {
 		t.Stop()
-		// Don't ClearEvent — let the parent Window close as normal.
-		return
-	}
-	if ev.What != consts.EvKeyDown {
 		return
 	}
 	if t.pty == nil {
 		return
 	}
+	switch ev.What {
+	case consts.EvKeyDown:
+		t.handleKey(ev)
+	case consts.EvMouseDown, consts.EvMouseUp, consts.EvMouseMove:
+		t.handleMouse(ev)
+	}
+}
+
+// handleKey is the keyboard branch of HandleEvent.
+//
+// Scrollback navigation uses Shift-modified nav keys: Shift+PageUp /
+// Shift+PageDn / Shift+Home / Shift+End. Plain nav keys (incl. mouse
+// wheel handled separately) are forwarded to the PTY because many TUIs
+// genuinely consume them.
+func (t *Terminal) handleKey(ev *drivers.Event) {
+	shift := ev.KeyShift&consts.KbLeftShift != 0
+	if shift {
+		switch ev.KeyCode {
+		case consts.KbPgUp:
+			t.scrollBy(t.Size.Y / 2)
+			views.MarkDirty()
+			t.ClearEvent(ev)
+			return
+		case consts.KbPgDn:
+			t.scrollBy(-t.Size.Y / 2)
+			views.MarkDirty()
+			t.ClearEvent(ev)
+			return
+		case consts.KbHome:
+			t.mu.Lock()
+			t.buf.scrollOffset = len(t.buf.scrollback)
+			t.mu.Unlock()
+			views.MarkDirty()
+			t.ClearEvent(ev)
+			return
+		case consts.KbEnd:
+			t.mu.Lock()
+			t.buf.snapToBottom()
+			t.mu.Unlock()
+			views.MarkDirty()
+			t.ClearEvent(ev)
+			return
+		}
+	}
+	// Live-typing event: snap the viewport back so the cursor is
+	// visible while the user is typing.
+	t.mu.Lock()
+	t.buf.snapToBottom()
+	t.mu.Unlock()
 	bytes := keyToBytes(ev)
 	if len(bytes) == 0 {
 		return
 	}
 	_, _ = t.pty.Write(bytes)
 	t.ClearEvent(ev)
+}
+
+// handleMouse routes mouse events: wheel-up/down scrolls the
+// scrollback while there's history to view (so the user can mouse-
+// wheel through past output), and any other mouse activity gets
+// forwarded to the PTY if the inner program has enabled mouse
+// tracking.
+func (t *Terminal) handleMouse(ev *drivers.Event) {
+	if ev.What == consts.EvMouseDown {
+		if ev.Buttons&consts.MbScrollWheelUp != 0 {
+			t.scrollBy(3)
+			views.MarkDirty()
+			t.ClearEvent(ev)
+			return
+		}
+		if ev.Buttons&consts.MbScrollWheelDown != 0 {
+			t.mu.Lock()
+			atBottom := t.buf.scrollOffset == 0
+			t.mu.Unlock()
+			if !atBottom {
+				t.scrollBy(-3)
+				views.MarkDirty()
+				t.ClearEvent(ev)
+				return
+			}
+			// At bottom already — let the wheel pass through as a
+			// mouse event so apps like less / vim can use it.
+		}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.buf.mouseX10 && !t.buf.mouseBtnEv && !t.buf.mouseAnyEv {
+		return
+	}
+	// Drop motion events the inner app didn't ask for.
+	if ev.What == consts.EvMouseMove && !t.buf.mouseBtnEv && !t.buf.mouseAnyEv {
+		return
+	}
+	local := t.MakeLocal(ev.Where)
+	if local.X < 0 || local.Y < 0 || local.X >= t.Size.X || local.Y >= t.Size.Y {
+		return
+	}
+	seq := encodeMouseSGR(ev, local.X, local.Y, t.buf.mouseSGR)
+	if seq == "" {
+		return
+	}
+	_, _ = t.pty.Write([]byte(seq))
+	t.ClearEvent(ev)
+}
+
+// scrollBy delegates to buffer under the lock and marks dirty.
+func (t *Terminal) scrollBy(delta int) {
+	t.mu.Lock()
+	t.buf.scrollByLines(delta)
+	t.mu.Unlock()
 }
 
 // ChangeBounds rezises the buffer + the underlying PTY.
@@ -195,14 +308,23 @@ func (t *Terminal) ChangeBounds(r geom.Rect) {
 	}
 }
 
-// Draw paints the buffer's cells into the view.
+// Draw paints either the live buffer or a scrollback view, depending
+// on the buffer's scrollOffset. When viewing scrollback the cursor is
+// hidden — its position is in the live state and showing it inside
+// historical content would be misleading.
 func (t *Terminal) Draw() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for y := 0; y < t.Size.Y; y++ {
 		row := screen.MakeDrawBuffer(t.Size.X)
+		src := t.buf.rowAt(y)
 		for x := 0; x < t.Size.X; x++ {
-			cl := t.buf.CellAt(x, y)
+			var cl cell
+			if x < len(src) {
+				cl = src[x]
+			} else {
+				cl = blankCell()
+			}
 			row[x] = cl.toDrawCell(t.DefaultFG, t.DefaultBG)
 			if row[x].Ch == "" {
 				row[x].Ch = " "
@@ -210,8 +332,7 @@ func (t *Terminal) Draw() {
 		}
 		t.WriteLine(0, y, t.Size.X, 1, row)
 	}
-	// Cursor placement.
-	if t.buf.cursorVisible {
+	if t.buf.cursorVisible && t.buf.scrollOffset == 0 {
 		t.Cursor = geom.Point{X: t.buf.cursorC, Y: t.buf.cursorR}
 		t.State |= consts.SfCursorVis
 	} else {

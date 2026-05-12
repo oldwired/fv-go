@@ -232,6 +232,12 @@ const (
 	SfModal     uint16 = 0x0200
 	SfDefault   uint16 = 0x0400
 	SfExposed   uint16 = 0x0800
+	// SfRawKeys tells Program.HandleEvent to skip its global Ctrl+C /
+	// Ctrl+X / Ctrl+V / F-key translation when the focus chain leads
+	// to a view with this flag set. Used by Terminal and other views
+	// that own their own keyboard (an embedded shell expects Ctrl+C
+	// to reach SIGINT, not turn into a Copy command).
+	SfRawKeys uint16 = 0x1000
 )
 
 // View option flags (Views.pas: TView.Options).

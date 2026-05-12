@@ -66,6 +66,27 @@ type buffer struct {
 	altCR, altCC int
 
 	cursorVisible bool
+
+	// scrollback holds lines that have scrolled off the top of the
+	// primary screen. Treated as a ring buffer: when len reaches
+	// scrollbackCap, the oldest line is dropped. ScrollOffset records
+	// how many lines the user has scrolled "up" from the live bottom
+	// (0 = at bottom, len(scrollback) = top of history).
+	//
+	// Alt-screen apps (vim, less, htop) get a fresh viewport — we
+	// intentionally don't push their lines into scrollback so exiting
+	// vim doesn't pollute the user's history with editor content.
+	scrollback    [][]cell
+	scrollbackCap int
+	scrollOffset  int
+
+	// mouse-tracking modes set by the inner program via DEC private
+	// modes (CSI ? Pn h / l). The terminal view reads these to decide
+	// whether to forward FV mouse events to the PTY.
+	mouseX10   bool // ?1000: button down + up
+	mouseBtnEv bool // ?1002: button + motion-while-held
+	mouseAnyEv bool // ?1003: button + any motion
+	mouseSGR   bool // ?1006: SGR-1006 coordinate encoding
 }
 
 // newBuffer constructs a fresh w×h buffer with default attributes.
@@ -82,6 +103,7 @@ func newBuffer(w, h int) *buffer {
 		scrollBot:     h - 1,
 		autoWrap:      true,
 		cursorVisible: true,
+		scrollbackCap: 2000,
 	}
 	b.cells = makeGrid(w, h)
 	b.altCells = makeGrid(w, h)
@@ -218,7 +240,11 @@ func (b *buffer) reverseIndex() {
 }
 
 // scrollUp shifts rows in the scroll region up by n, filling new
-// bottom rows with blanks.
+// bottom rows with blanks. When the region covers the full primary
+// screen, the rows leaving the top are appended to scrollback so the
+// user can scroll back to them later. Partial scroll regions (vim
+// pager, custom TUIs) don't touch scrollback — those rows aren't
+// "history", they're internal repaints.
 func (b *buffer) scrollUp(n int) {
 	top, bot := b.scrollTop, b.scrollBot
 	if n <= 0 || top >= bot {
@@ -226,6 +252,12 @@ func (b *buffer) scrollUp(n int) {
 	}
 	if n > bot-top+1 {
 		n = bot - top + 1
+	}
+	fullScreen := top == 0 && bot == b.H-1 && !b.altActive
+	if fullScreen {
+		for i := 0; i < n; i++ {
+			b.appendScrollback(b.cells[i])
+		}
 	}
 	for y := top; y <= bot-n; y++ {
 		copy(b.cells[y], b.cells[y+n])
@@ -237,6 +269,61 @@ func (b *buffer) scrollUp(n int) {
 		}
 	}
 }
+
+// appendScrollback pushes one line into the ring buffer, dropping the
+// oldest entry once cap is reached. We make a copy because the source
+// row is about to be overwritten by scrollUp's shift.
+func (b *buffer) appendScrollback(line []cell) {
+	if b.scrollbackCap <= 0 {
+		return
+	}
+	cp := make([]cell, len(line))
+	copy(cp, line)
+	if len(b.scrollback) >= b.scrollbackCap {
+		// Drop oldest. Reusing the slice keeps allocations bounded.
+		copy(b.scrollback, b.scrollback[1:])
+		b.scrollback[len(b.scrollback)-1] = cp
+	} else {
+		b.scrollback = append(b.scrollback, cp)
+	}
+}
+
+// rowAt returns the source row for viewport row r given the current
+// scrollOffset. r is 0-based from the top of the viewport. Returns a
+// blank row for out-of-range coordinates (shouldn't happen if
+// scrollOffset is clamped).
+func (b *buffer) rowAt(r int) []cell {
+	virtual := len(b.scrollback) - b.scrollOffset + r
+	if virtual < 0 {
+		return nil
+	}
+	if virtual < len(b.scrollback) {
+		return b.scrollback[virtual]
+	}
+	idx := virtual - len(b.scrollback)
+	if idx < 0 || idx >= len(b.cells) {
+		return nil
+	}
+	return b.cells[idx]
+}
+
+// scrollByLines moves the viewport up (positive delta) or down through
+// the scrollback. Clamped to [0, len(scrollback)].
+func (b *buffer) scrollByLines(delta int) {
+	off := b.scrollOffset + delta
+	if off < 0 {
+		off = 0
+	}
+	if off > len(b.scrollback) {
+		off = len(b.scrollback)
+	}
+	b.scrollOffset = off
+}
+
+// snapToBottom resets the scroll offset so the live cursor is in view.
+// Called when the user types — anything they're doing should drop them
+// out of "history view" mode.
+func (b *buffer) snapToBottom() { b.scrollOffset = 0 }
 
 // scrollDown shifts rows down by n.
 func (b *buffer) scrollDown(n int) {
@@ -897,6 +984,14 @@ func (p *parser) applyDECMode(m int, set bool) {
 		p.buf.autoWrap = set
 	case 25: // DECTCEM cursor visibility
 		p.buf.cursorVisible = set
+	case 1000: // X10 mouse: button events
+		p.buf.mouseX10 = set
+	case 1002: // cell-motion mouse: button + motion-while-held
+		p.buf.mouseBtnEv = set
+	case 1003: // any-event mouse: button + always-motion
+		p.buf.mouseAnyEv = set
+	case 1006: // SGR-1006 extended coordinate encoding
+		p.buf.mouseSGR = set
 	case 47, 1047, 1049: // alt screen
 		if set && !p.buf.altActive {
 			p.buf.altActive = true
