@@ -8,6 +8,7 @@ import (
 
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/dialogs"
+	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/term"
 	"github.com/oldwired/fv-go/pkg/fv/views"
@@ -37,6 +38,38 @@ func compareGolden(t *testing.T, name, got string) {
 	}
 	if string(want) != got {
 		t.Errorf("snapshot mismatch for %s:\n--- got ---\n%s\n--- want ---\n%s", name, got, string(want))
+	}
+}
+
+// TestButtonIgnoresWheel is the schema-level smoke test: after the
+// EvMouseDown/EvMouseWheel split, a button receiving a wheel event
+// must NOT fire its command. Before the schema change, the same
+// wheel notch (delivered as EvMouseDown with a wheel button bit)
+// would have started the press-and-hold loop and emitted CmDefault
+// on every scroll tick.
+func TestButtonIgnoresWheel(t *testing.T) {
+	// Wire a minimal queue so PutEvent from inside a hypothetical
+	// firing wouldn't panic — and so we can assert nothing landed.
+	q := drivers.NewQueue()
+	views.SetEventQueue(q)
+	defer views.SetEventQueue(nil)
+
+	btn := dialogs.NewButton(geom.NewRect(0, 0, 10, 2), "Go", 9999, dialogs.BfNormal)
+	btn.State |= consts.SfExposed | consts.SfVisible
+	wheel := &drivers.Event{
+		What:    consts.EvMouseWheel,
+		Buttons: consts.MbScrollWheelUp,
+		Where:   geom.Point{X: 3, Y: 0},
+	}
+	btn.HandleEvent(wheel)
+	// The event should be untouched (no ClearEvent), so the parent
+	// dispatch loop can keep walking to the next matching child.
+	if wheel.What == consts.EvNothing {
+		t.Error("button consumed the wheel event")
+	}
+	// No command queued.
+	if _, ok := q.Get(); ok {
+		t.Error("button fired a command on wheel event")
 	}
 }
 

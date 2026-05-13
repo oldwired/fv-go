@@ -236,16 +236,16 @@ func levelTag(l Level) string {
 
 // HandleEvent: arrows / wheel / pageup / pagedown / home / end.
 func (l *LogViewer) HandleEvent(ev *drivers.Event) {
-	if ev.What == consts.EvMouseDown {
-		if ev.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0 {
-			step := 3
-			if ev.Buttons&consts.MbScrollWheelUp != 0 {
-				step = -step
-			}
-			l.scrollBy(step)
-			l.ClearEvent(ev)
-			return
+	if ev.What == consts.EvMouseWheel {
+		step := 3
+		if ev.Buttons&consts.MbScrollWheelUp != 0 {
+			step = -step
 		}
+		l.scrollBy(step)
+		l.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseDown {
 		if l.Owner != nil {
 			l.Owner.Focus(l.Self())
 		}

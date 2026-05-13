@@ -174,21 +174,21 @@ func (t *TreeView) Draw() {
 // that, subsequent key events go to whoever was focused before,
 // matching the ListViewer pattern.
 func (t *TreeView) HandleEvent(ev *drivers.Event) {
-	if ev.What == consts.EvMouseDown {
-		// Mouse wheel: scroll without changing the expand state. We
-		// move Focused by ±3, which makes the visible row range
-		// shift in Draw (top = Focused - h + 1 when Focused >= h).
-		if ev.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0 {
-			step := 3
-			if ev.Buttons&consts.MbScrollWheelUp != 0 {
-				t.Focused -= step
-			} else {
-				t.Focused += step
-			}
-			t.clampFocused()
-			t.ClearEvent(ev)
-			return
+	if ev.What == consts.EvMouseWheel {
+		// Scroll without changing the expand state. We move Focused
+		// by ±3, which makes the visible row range shift in Draw
+		// (top = Focused - h + 1 when Focused >= h).
+		step := 3
+		if ev.Buttons&consts.MbScrollWheelUp != 0 {
+			t.Focused -= step
+		} else {
+			t.Focused += step
 		}
+		t.clampFocused()
+		t.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseDown {
 		local := t.MakeLocal(ev.Where)
 		// Account for the visible top — clicking row 0 of the
 		// viewport when scrolled means flat[topVisible], not flat[0].

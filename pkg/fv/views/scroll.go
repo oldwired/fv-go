@@ -319,23 +319,20 @@ func (l *ListViewer) Draw() {
 // HandleEvent: arrows / pageup / pagedown / home / end / Enter, plus
 // click-to-focus, double-click to select, and mouse-wheel to scroll.
 func (l *ListViewer) HandleEvent(ev *drivers.Event) {
-	if ev.What == consts.EvMouseDown {
-		// Wheel events come through as mouse-down with the wheel
-		// button bits set (consts.MbScrollWheelUp / Down). Translate
-		// to focus movement without firing cmListItemSelected, even
-		// when SingleClickSelects is on — otherwise scrolling a
-		// directory list would navigate into whatever ends up under
-		// the cursor.
-		if ev.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0 {
-			step := 3
-			if ev.Buttons&consts.MbScrollWheelUp != 0 {
-				l.FocusItem(l.Focused - step)
-			} else {
-				l.FocusItem(l.Focused + step)
-			}
-			l.ClearEvent(ev)
-			return
+	if ev.What == consts.EvMouseWheel {
+		// Translate the wheel tick to focus movement without firing
+		// cmListItemSelected — otherwise scrolling a directory list
+		// would navigate into whatever ends up under the cursor.
+		step := 3
+		if ev.Buttons&consts.MbScrollWheelUp != 0 {
+			l.FocusItem(l.Focused - step)
+		} else {
+			l.FocusItem(l.Focused + step)
 		}
+		l.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseDown {
 		local := l.MakeLocal(ev.Where)
 		top := 0
 		if l.VScroll != nil {

@@ -103,19 +103,17 @@ func (iv *ImageView) HandleEvent(ev *drivers.Event) {
 	if iv.Image == nil {
 		return
 	}
-	if ev.What == consts.EvMouseDown {
+	if ev.What == consts.EvMouseWheel {
 		if ev.Buttons&consts.MbScrollWheelUp != 0 {
 			iv.OffsetY -= 8
-			iv.clampOffsets()
-			iv.ClearEvent(ev)
-			return
-		}
-		if ev.Buttons&consts.MbScrollWheelDown != 0 {
+		} else {
 			iv.OffsetY += 8
-			iv.clampOffsets()
-			iv.ClearEvent(ev)
-			return
 		}
+		iv.clampOffsets()
+		iv.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseDown {
 		// Plain click selects the view (focus). Don't consume so the
 		// owning group can still move focus around.
 		return

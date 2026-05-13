@@ -92,7 +92,7 @@ func NewBase(bounds geom.Rect) Base {
 		Origin:    bounds.A,
 		Size:      geom.Point{X: bounds.Width(), Y: bounds.Height()},
 		State:     consts.SfVisible,
-		EventMask: consts.EvMouseDown | consts.EvKeyDown | consts.EvCommand,
+		EventMask: consts.EvMouseDown | consts.EvMouseWheel | consts.EvKeyDown | consts.EvCommand,
 	}
 }
 

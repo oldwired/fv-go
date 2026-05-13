@@ -1132,16 +1132,15 @@ func (m *MarkdownView) HandleEvent(ev *drivers.Event) {
 		return
 	}
 	switch ev.What {
-	case consts.EvMouseDown:
-		if ev.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0 {
-			step := 3
-			if ev.Buttons&consts.MbScrollWheelUp != 0 {
-				step = -step
-			}
-			m.scrollBy(step)
-			m.ClearEvent(ev)
-			return
+	case consts.EvMouseWheel:
+		step := 3
+		if ev.Buttons&consts.MbScrollWheelUp != 0 {
+			step = -step
 		}
+		m.scrollBy(step)
+		m.ClearEvent(ev)
+		return
+	case consts.EvMouseDown:
 		if ev.Buttons&consts.MbLeftButton != 0 {
 			if m.Owner != nil {
 				m.Owner.Focus(m.Self())

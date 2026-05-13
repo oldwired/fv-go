@@ -89,6 +89,9 @@ func (s *Splitter) Draw() {
 }
 
 // HandleEvent runs a drag loop when the user clicks the splitter.
+// Scroll-wheel ticks now arrive as EvMouseWheel (not EvMouseDown), so
+// no per-site filter is needed — this handler simply ignores
+// non-EvMouseDown events.
 func (s *Splitter) HandleEvent(ev *drivers.Event) {
 	if ev.What != consts.EvMouseDown {
 		return

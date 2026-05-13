@@ -196,11 +196,22 @@ const (
 	EvMouseUp   uint16 = 0x0002
 	EvMouseMove uint16 = 0x0004
 	EvMouseAuto uint16 = 0x0008
-	EvMouse     uint16 = 0x000F
 
 	EvKeyDown  uint16 = 0x0010
 	EvKeyUp    uint16 = 0x0020
 	EvKeyboard uint16 = 0x0030
+
+	// EvMouseWheel separates scroll-wheel ticks from clicks. The
+	// driver layer used to fold wheel into EvMouseDown with a
+	// MbScrollWheel* button bit; that meant every widget matching
+	// EvMouseDown for "user clicked" misfired on each notch (menus
+	// opened, buttons depressed, etc.). Wheel ticks now arrive as
+	// their own kind, and the EvMouse mask widens to include it so
+	// existing "any mouse event" checks (e.g. Window click-through
+	// swallowing) still apply to wheel events.
+	EvMouseWheel uint16 = 0x0040
+
+	EvMouse uint16 = 0x004F // EvMouseDown | Up | Move | Auto | Wheel
 
 	EvCommand   uint16 = 0x0100
 	EvBroadcast uint16 = 0x0200

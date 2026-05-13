@@ -40,10 +40,18 @@ func FromTermEvent(t term.Event) Event {
 			}
 		}
 	case term.EventMouse:
-		// Motion-while-button-held arrives with Pressed=true and the
-		// xterm "32" motion bit, so check Motion first.
+		// Wheel ticks arrive through the xterm protocol as a "press"
+		// with a MbScrollWheel* button bit and no matching release.
+		// Project them to EvMouseWheel so widgets that match
+		// EvMouseDown for "user clicked" don't misfire on every
+		// scroll notch. The button-bit (Up vs Down) stays on
+		// e.Buttons so callers can tell scroll direction.
 		switch {
+		case t.Mouse.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0:
+			e.What = consts.EvMouseWheel
 		case t.Mouse.Motion:
+			// Motion-while-button-held arrives with Pressed=true and
+			// the xterm "32" motion bit, so check Motion first.
 			e.What = consts.EvMouseMove
 		case t.Mouse.Released:
 			e.What = consts.EvMouseUp

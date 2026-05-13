@@ -1314,6 +1314,17 @@ func spaces(n int) string {
 
 // HandleEvent dispatches keyboard / mouse events.
 func (g *StringGrid) HandleEvent(ev *drivers.Event) {
+	if ev.What == consts.EvMouseWheel {
+		if g.AllowWheelScroll {
+			if ev.Buttons&consts.MbScrollWheelUp != 0 {
+				g.moveTo(g.Focus.Col, g.Focus.Row-3, false)
+			} else {
+				g.moveTo(g.Focus.Col, g.Focus.Row+3, false)
+			}
+		}
+		g.ClearEvent(ev)
+		return
+	}
 	if ev.What == consts.EvMouseDown {
 		g.handleMouseDown(ev)
 		return
@@ -1430,20 +1441,6 @@ func (g *StringGrid) canEditFocused() bool {
 // edit, or cell select. Respects the Allow* permission toggles.
 func (g *StringGrid) handleMouseDown(ev *drivers.Event) {
 	local := g.MakeLocal(ev.Where)
-	if ev.Buttons&consts.MbScrollWheelUp != 0 {
-		if g.AllowWheelScroll {
-			g.moveTo(g.Focus.Col, g.Focus.Row-3, false)
-		}
-		g.ClearEvent(ev)
-		return
-	}
-	if ev.Buttons&consts.MbScrollWheelDown != 0 {
-		if g.AllowWheelScroll {
-			g.moveTo(g.Focus.Col, g.Focus.Row+3, false)
-		}
-		g.ClearEvent(ev)
-		return
-	}
 	if g.Owner != nil {
 		g.Owner.Focus(g.Self())
 	}

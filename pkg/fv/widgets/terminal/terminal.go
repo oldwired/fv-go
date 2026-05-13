@@ -134,7 +134,9 @@ func New(bounds geom.Rect) *Terminal {
 	t.SetSelf(t)
 	t.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
 	t.Options |= consts.OfSelectable
-	t.EventMask = consts.EvKeyDown | consts.EvCommand | consts.EvMouseDown | consts.EvMouseUp | consts.EvMouseMove
+	t.EventMask = consts.EvKeyDown | consts.EvCommand |
+		consts.EvMouseDown | consts.EvMouseUp | consts.EvMouseMove |
+		consts.EvMouseWheel
 	// Claim raw keyboard so Program.HandleEvent doesn't fold Ctrl+C
 	// into Copy etc. while we're focused. Ctrl+C, Ctrl+X, Ctrl+V,
 	// and the F-keys reach the inner shell instead.
@@ -390,7 +392,7 @@ func (t *Terminal) HandleEvent(ev *drivers.Event) {
 	switch ev.What {
 	case consts.EvKeyDown:
 		t.handleKey(ev)
-	case consts.EvMouseDown, consts.EvMouseUp, consts.EvMouseMove:
+	case consts.EvMouseDown, consts.EvMouseUp, consts.EvMouseMove, consts.EvMouseWheel:
 		t.handleMouse(ev)
 	}
 }
@@ -668,25 +670,28 @@ func rowContains(row []cell, needle string) bool {
 //     when the inner program asked for mouse tracking (via DEC
 //     private modes ?1000 / ?1002 / ?1003 / ?1006).
 func (t *Terminal) handleMouse(ev *drivers.Event) {
-	if ev.What == consts.EvMouseDown {
+	if ev.What == consts.EvMouseWheel {
 		if ev.Buttons&consts.MbScrollWheelUp != 0 {
 			t.scrollBy(3)
 			views.MarkDirty()
 			t.ClearEvent(ev)
 			return
 		}
-		if ev.Buttons&consts.MbScrollWheelDown != 0 {
-			t.mu.Lock()
-			atBottom := t.buf.scrollOffset == 0
-			t.mu.Unlock()
-			if !atBottom {
-				t.scrollBy(-3)
-				views.MarkDirty()
-				t.ClearEvent(ev)
-				return
-			}
-			// Falls through to forwarding below.
+		// Wheel-down: scroll history toward the live tail when we
+		// have any. At the live bottom, fall through so apps that
+		// enabled mouse tracking (less, vim, htop, …) still see the
+		// wheel notch — but encoded as a wheel event via SGR-1006.
+		t.mu.Lock()
+		atBottom := t.buf.scrollOffset == 0
+		t.mu.Unlock()
+		if !atBottom {
+			t.scrollBy(-3)
+			views.MarkDirty()
+			t.ClearEvent(ev)
+			return
 		}
+		// Fall through into the mouse-forwarding block below so the
+		// inner program receives the wheel notch.
 	}
 
 	// Selection logic. Triggers when EITHER the inner program isn't
