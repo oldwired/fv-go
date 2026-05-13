@@ -26,6 +26,7 @@ package markdown
 import (
 	"strings"
 
+	"github.com/oldwired/fv-go/pkg/fv/clipboard"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
@@ -44,6 +45,23 @@ type MarkdownView struct {
 	lines   []renderedLine
 	Top     int
 	VScroll *views.ScrollBar
+
+	// Drag-to-select state. selecting is true while the user holds
+	// the left mouse button after pressing inside the view; hasSel
+	// stays true after release until the next click clears it.
+	// Positions are (line, column) where column is a display column
+	// (so wide / multi-byte runes are counted as cells, matching the
+	// terminal's selection coords).
+	selecting bool
+	hasSel    bool
+	selStart  mdPos
+	selEnd    mdPos
+}
+
+// mdPos addresses a cell inside the rendered line list.
+type mdPos struct {
+	line int // 0-based index into m.lines
+	col  int // display column inside that line
 }
 
 // renderedLine is a pre-formatted display line (after MD parsing).
@@ -73,6 +91,11 @@ func New(bounds geom.Rect, v *views.ScrollBar) *MarkdownView {
 	m.SetSelf(m)
 	m.Options |= consts.OfSelectable
 	m.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
+	// Subscribe to mouse-move + mouse-up too, not just mouse-down,
+	// so drag-to-select can extend the selection between press and
+	// release.
+	m.EventMask = consts.EvKeyDown | consts.EvCommand |
+		consts.EvMouseDown | consts.EvMouseUp | consts.EvMouseMove
 	return m
 }
 
@@ -850,6 +873,7 @@ func byteToCol(s string, byteOff int) int {
 // Draw paints visible lines.
 func (m *MarkdownView) Draw() {
 	bg := theme.Get().EditorText
+	selA, selB, hasSel := m.normalizedSel()
 	for r := 0; r < m.Size.Y; r++ {
 		buf := screen.MakeDrawBuffer(m.Size.X)
 		for x := 0; x < m.Size.X; x++ {
@@ -895,13 +919,220 @@ func (m *MarkdownView) Draw() {
 				}
 			}
 		}
+		// Selection overlay. Reverse the cell's attr (fg ↔ bg) so the
+		// styling (italic, bold color) of the underlying content still
+		// shows but the highlighted rectangle is unmistakable. Done
+		// last so it sits on top of everything else.
+		if hasSel {
+			line := m.Top + r
+			for x := 0; x < m.Size.X; x++ {
+				if inSelection(line, x, selA, selB) {
+					buf[x].Attr = reverseAttr(buf[x].Attr)
+				}
+			}
+		}
 		m.WriteLine(0, r, m.Size.X, 1, buf)
 	}
 }
 
-// HandleEvent: arrows / wheel / pageup / pagedown.
+// reverseAttr flips the foreground and background nibbles of a TV-
+// packed attribute byte while preserving any bright/intensity bits.
+// Same flip the terminal widget uses for its drag-to-select highlight.
+func reverseAttr(attr uint16) uint16 {
+	fg := attr & 0x000F
+	bg := (attr >> 8) & 0x000F
+	fgRest := attr & 0x00F0
+	bgRest := (attr >> 8) & 0x00F0
+	return bg | bgRest | (fg << 8) | (fgRest << 8)
+}
+
+// inSelection reports whether display-cell (line, col) is inside the
+// normalized [a, b) selection rectangle. End-exclusive on the right
+// edge so a single click (start == end) yields no selected cells.
+func inSelection(line, col int, a, b mdPos) bool {
+	if line < a.line || line > b.line {
+		return false
+	}
+	if line == a.line && col < a.col {
+		return false
+	}
+	if line == b.line && col >= b.col {
+		return false
+	}
+	return true
+}
+
+// normalizedSel returns the selection sorted top-left → bottom-right,
+// plus a bool indicating whether anything is selected at all.
+func (m *MarkdownView) normalizedSel() (a, b mdPos, ok bool) {
+	if !m.hasSel && !m.selecting {
+		return mdPos{}, mdPos{}, false
+	}
+	a, b = m.selStart, m.selEnd
+	if a.line > b.line || (a.line == b.line && a.col > b.col) {
+		a, b = b, a
+	}
+	if a == b {
+		return mdPos{}, mdPos{}, false
+	}
+	return a, b, true
+}
+
+// posFromMouse maps a screen-coordinate mouse event to a (line, col)
+// position. Coords past the end of the viewport / line list are
+// clamped — pasting past EOL or below the last line still produces a
+// valid endpoint.
+func (m *MarkdownView) posFromMouse(where geom.Point) mdPos {
+	local := m.MakeLocal(where)
+	col := local.X
+	if col < 0 {
+		col = 0
+	}
+	if col > m.Size.X {
+		col = m.Size.X
+	}
+	line := m.Top + local.Y
+	if line < 0 {
+		line = 0
+	}
+	if line > len(m.lines) {
+		line = len(m.lines)
+	}
+	return mdPos{line: line, col: col}
+}
+
+// urlAtCol returns the OSC 8 URL covering display column col on line,
+// or "" if no URL-bearing span covers that cell. The line's spans are
+// byte-indexed into line.Text; we convert to columns to match the
+// caller's coordinate system.
+func urlAtCol(line renderedLine, col int) string {
+	for _, sp := range line.Spans {
+		if sp.URL == "" {
+			continue
+		}
+		s := byteToCol(line.Text, sp.Start)
+		e := byteToCol(line.Text, sp.End)
+		if col >= s && col < e {
+			return sp.URL
+		}
+	}
+	return ""
+}
+
+// selectionURL returns a single URL when every cell inside the
+// current selection is covered by spans that all share the same
+// non-empty URL. Mixed selections (some plain cells, some link cells,
+// or multiple distinct URLs) return "" so the caller falls back to
+// rendered text. Used to make "drag-select exactly a link → clipboard
+// gets the URL, not the visible label" work for links / autolinks /
+// emails / images.
+func (m *MarkdownView) selectionURL() string {
+	a, b, ok := m.normalizedSel()
+	if !ok {
+		return ""
+	}
+	var firstURL string
+	first := true
+	for li := a.line; li <= b.line && li < len(m.lines); li++ {
+		line := m.lines[li]
+		startCol := 0
+		endCol := utf8.StringDisplayWidth(line.Text)
+		if li == a.line {
+			startCol = a.col
+		}
+		if li == b.line {
+			endCol = b.col
+		}
+		for col := startCol; col < endCol; col++ {
+			u := urlAtCol(line, col)
+			if first {
+				firstURL = u
+				first = false
+				continue
+			}
+			if u != firstURL {
+				return ""
+			}
+		}
+	}
+	return firstURL
+}
+
+// currentCopyText decides what the clipboard gets when the user
+// completes a drag or fires CmCopy: the URL when the selection sits
+// entirely within a single link, otherwise the rendered text.
+func (m *MarkdownView) currentCopyText() string {
+	if u := m.selectionURL(); u != "" {
+		return u
+	}
+	return m.selectionText()
+}
+
+// selectionText extracts the visible text inside the current
+// selection. Slicing is column-aware via utf8.CopyDisplayCells so
+// wide / multi-byte runes survive intact.
+func (m *MarkdownView) selectionText() string {
+	a, b, ok := m.normalizedSel()
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	for li := a.line; li <= b.line && li < len(m.lines); li++ {
+		text := m.lines[li].Text
+		startCol := 0
+		endCol := utf8.StringDisplayWidth(text)
+		if li == a.line {
+			startCol = a.col
+		}
+		if li == b.line {
+			endCol = b.col
+		}
+		if endCol <= startCol {
+			if li != b.line {
+				sb.WriteByte('\n')
+			}
+			continue
+		}
+		piece := utf8.CopyDisplayCells(text, startCol, endCol-startCol)
+		sb.WriteString(piece)
+		if li != b.line {
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
+}
+
+// selectAll selects the entire rendered document.
+func (m *MarkdownView) selectAll() {
+	if len(m.lines) == 0 {
+		return
+	}
+	m.selStart = mdPos{line: 0, col: 0}
+	last := len(m.lines) - 1
+	m.selEnd = mdPos{line: last, col: utf8.StringDisplayWidth(m.lines[last].Text)}
+	m.hasSel = true
+	m.selecting = false
+}
+
+// HandleEvent dispatches:
+//
+//   - Mouse wheel: scroll
+//   - Mouse-down + drag: select text; on release copy to clipboard
+//     via OSC 52 (same path the terminal widget uses)
+//   - CmCopy: copy current selection
+//   - Ctrl+A: select all
+//   - Esc: clear selection
+//   - Arrows / PgUp / PgDn / Home / End: scroll
 func (m *MarkdownView) HandleEvent(ev *drivers.Event) {
-	if ev.What == consts.EvMouseDown {
+	if ev.What == consts.EvCommand && ev.Command == consts.CmCopy {
+		if text := m.currentCopyText(); text != "" {
+			clipboard.SetText(text)
+		}
+		m.ClearEvent(ev)
+		return
+	}
+	switch ev.What {
+	case consts.EvMouseDown:
 		if ev.Buttons&(consts.MbScrollWheelUp|consts.MbScrollWheelDown) != 0 {
 			step := 3
 			if ev.Buttons&consts.MbScrollWheelUp != 0 {
@@ -911,13 +1142,71 @@ func (m *MarkdownView) HandleEvent(ev *drivers.Event) {
 			m.ClearEvent(ev)
 			return
 		}
+		if ev.Buttons&consts.MbLeftButton != 0 {
+			if m.Owner != nil {
+				m.Owner.Focus(m.Self())
+			}
+			pos := m.posFromMouse(ev.Where)
+			m.selStart = pos
+			m.selEnd = pos
+			m.selecting = true
+			// Clear any previous "released" selection — start fresh.
+			m.hasSel = false
+			m.Draw()
+			m.ClearEvent(ev)
+			return
+		}
 		if m.Owner != nil {
 			m.Owner.Focus(m.Self())
 		}
 		m.ClearEvent(ev)
 		return
+	case consts.EvMouseMove:
+		if !m.selecting {
+			return
+		}
+		m.selEnd = m.posFromMouse(ev.Where)
+		m.Draw()
+		m.ClearEvent(ev)
+		return
+	case consts.EvMouseUp:
+		if !m.selecting {
+			return
+		}
+		// Commit selection BEFORE flipping selecting=false. The
+		// normalizedSel() / currentCopyText() helpers gate on
+		// (hasSel || selecting); if we clear selecting first, hasSel
+		// is still false from MouseDown and the snapshot is empty.
+		m.selEnd = m.posFromMouse(ev.Where)
+		if _, _, ok := m.normalizedSel(); ok {
+			if text := m.currentCopyText(); text != "" {
+				clipboard.SetText(text)
+			}
+			m.hasSel = true
+		} else {
+			m.hasSel = false
+		}
+		m.selecting = false
+		m.Draw()
+		m.ClearEvent(ev)
+		return
 	}
 	if ev.What != consts.EvKeyDown {
+		return
+	}
+	// Ctrl+A → select all. The reader puts the scan-coded form in
+	// KeyCode; we match that rather than UnicodeChar so plain typing
+	// of 'a' inside a focused parent still flows through.
+	if ev.KeyCode == consts.KbCtrlA {
+		m.selectAll()
+		m.Draw()
+		m.ClearEvent(ev)
+		return
+	}
+	if ev.KeyCode == consts.KbEsc && m.hasSel {
+		m.hasSel = false
+		m.Draw()
+		m.ClearEvent(ev)
 		return
 	}
 	switch ev.KeyCode {

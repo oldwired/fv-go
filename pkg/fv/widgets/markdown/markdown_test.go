@@ -4,8 +4,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oldwired/fv-go/pkg/fv/clipboard"
+	"github.com/oldwired/fv-go/pkg/fv/consts"
+	"github.com/oldwired/fv-go/pkg/fv/drivers"
+	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/utf8"
 )
+
+func mouseEv(what uint16, buttons byte, x, y int) *drivers.Event {
+	return &drivers.Event{What: what, Buttons: buttons, Where: geom.Point{X: x, Y: y}}
+}
 
 // helper to find the first rendered line whose Text matches a needle.
 func findLine(lines []renderedLine, contains string) *renderedLine {
@@ -304,6 +313,173 @@ func TestTableCellsParseInline(t *testing.T) {
 	}
 	if !sawURL {
 		t.Error("table cell link URL did not propagate")
+	}
+}
+
+// TestSelectionText covers the drag-to-select path: a multi-line
+// selection should join the chosen visible runs with '\n', honoring
+// display columns (not bytes) so the selection survives wide /
+// multi-byte runes intact.
+func TestSelectionText(t *testing.T) {
+	m := &MarkdownView{}
+	m.lines = parse("alpha\nbeta gamma\ndelta\n")
+	// Select from (line=0, col=2) through (line=2, col=3) — that's
+	// "pha\nbeta gamma\ndel".
+	m.selStart = mdPos{line: 0, col: 2}
+	m.selEnd = mdPos{line: 2, col: 3}
+	m.hasSel = true
+	got := m.selectionText()
+	want := "pha\nbeta gamma\ndel"
+	if got != want {
+		t.Errorf("selectionText() = %q, want %q", got, want)
+	}
+}
+
+// TestSelectionTextSingleLine confirms a within-line selection emits
+// just the chosen substring with no trailing newline.
+func TestSelectionTextSingleLine(t *testing.T) {
+	m := &MarkdownView{}
+	m.lines = parse("hello world\n")
+	m.selStart = mdPos{line: 0, col: 6}
+	m.selEnd = mdPos{line: 0, col: 11}
+	m.hasSel = true
+	if got := m.selectionText(); got != "world" {
+		t.Errorf("selectionText() = %q, want %q", got, "world")
+	}
+}
+
+// TestSelectionTextEmpty returns "" when no selection is active.
+func TestSelectionTextEmpty(t *testing.T) {
+	m := &MarkdownView{}
+	m.lines = parse("hi\n")
+	if got := m.selectionText(); got != "" {
+		t.Errorf("expected empty selectionText, got %q", got)
+	}
+}
+
+// TestDragSelectCopies drives a synthetic mouse drag through
+// HandleEvent and asserts that mouse-up populates the clipboard with
+// the selected text — the contract fvmux + other hosts rely on.
+func TestDragSelectCopies(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 40, 6), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("Alpha bravo charlie\nDelta echo foxtrot\n")
+	clipboard.SetText("") // reset
+	m.HandleEvent(mouseEv(consts.EvMouseDown, consts.MbLeftButton, 6, 0))
+	m.HandleEvent(mouseEv(consts.EvMouseMove, consts.MbLeftButton, 10, 1))
+	m.HandleEvent(mouseEv(consts.EvMouseUp, 0, 10, 1))
+	got := clipboard.GetText()
+	want := "bravo charlie\nDelta echo"
+	if got != want {
+		t.Errorf("clipboard after drag = %q, want %q", got, want)
+	}
+}
+
+// TestSmartCopyLinkURL: selecting only the visible label of an inline
+// link copies the URL, not the label. This is the headline payoff of
+// the "smart per-context" copy rule.
+func TestSmartCopyLinkURL(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 60, 4), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("[the project](https://example.com/p)\n")
+	// The first rendered line is "the project". Select all 11 cells.
+	m.selStart = mdPos{line: 0, col: 0}
+	m.selEnd = mdPos{line: 0, col: 11}
+	m.hasSel = true
+	if got := m.currentCopyText(); got != "https://example.com/p" {
+		t.Errorf("currentCopyText() = %q, want URL", got)
+	}
+}
+
+// TestSmartCopyAutolinkURL: a drag inside an autolink yields the
+// underlying URL.
+func TestSmartCopyAutolinkURL(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 60, 4), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("<https://github.com>\n")
+	m.selStart = mdPos{line: 0, col: 0}
+	m.selEnd = mdPos{line: 0, col: 18}
+	m.hasSel = true
+	if got := m.currentCopyText(); got != "https://github.com" {
+		t.Errorf("currentCopyText() = %q, want autolink URL", got)
+	}
+}
+
+// TestSmartCopyMixedFallsBack: a selection that spans both link and
+// non-link cells (e.g., "Visit [link]" plus trailing prose) falls
+// back to rendered text — copying just the URL would lose context.
+func TestSmartCopyMixedFallsBack(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 60, 4), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("Visit [the project](https://example.com/p) today\n")
+	// Whole rendered line: "Visit the project today" (23 cells).
+	m.selStart = mdPos{line: 0, col: 0}
+	m.selEnd = mdPos{line: 0, col: 23}
+	m.hasSel = true
+	got := m.currentCopyText()
+	if got != "Visit the project today" {
+		t.Errorf("currentCopyText() = %q, want rendered prose", got)
+	}
+}
+
+// TestSmartCopyPlainProse: no URL anywhere → plain rendered text.
+func TestSmartCopyPlainProse(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 60, 4), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("just words here\n")
+	m.selStart = mdPos{line: 0, col: 0}
+	m.selEnd = mdPos{line: 0, col: 15}
+	m.hasSel = true
+	if got := m.currentCopyText(); got != "just words here" {
+		t.Errorf("currentCopyText() = %q, want plain prose", got)
+	}
+}
+
+// TestSmartCopyImageURL: dragging across the rendered image cells
+// (the alt text) copies the image URL, since the alt is rarely what
+// you want to paste — you want the file path.
+func TestSmartCopyImageURL(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 60, 4), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("![Diagram](images/diagram.png)\n")
+	// Rendered as "🖼 Diagram" (🖼 is a wide rune → 2 cells, plus space + 7).
+	endCol := utf8.StringDisplayWidth(m.lines[0].Text)
+	m.selStart = mdPos{line: 0, col: 0}
+	m.selEnd = mdPos{line: 0, col: endCol}
+	m.hasSel = true
+	if got := m.currentCopyText(); got != "images/diagram.png" {
+		t.Errorf("currentCopyText() = %q, want image URL", got)
+	}
+}
+
+// TestSmartCopyAdjacentLinksFallBack: two distinct links touching
+// each other in the selection must NOT collapse to one URL — that
+// would be wrong (which URL?). Fall back to text.
+func TestSmartCopyAdjacentLinksFallBack(t *testing.T) {
+	m := New(geom.NewRect(0, 0, 60, 4), nil)
+	m.State |= consts.SfVisible | consts.SfExposed
+	m.SetMarkdown("[a](https://1) [b](https://2)\n")
+	// Rendered: "a b" (3 cells).
+	m.selStart = mdPos{line: 0, col: 0}
+	m.selEnd = mdPos{line: 0, col: 3}
+	m.hasSel = true
+	if got := m.currentCopyText(); got != "a b" {
+		t.Errorf("currentCopyText() = %q, want rendered text fallback", got)
+	}
+}
+
+// TestSelectAll selects every cell in the document.
+func TestSelectAll(t *testing.T) {
+	m := &MarkdownView{}
+	m.lines = parse("one\ntwo\nthree\n")
+	m.selectAll()
+	if !m.hasSel {
+		t.Fatal("selectAll did not set hasSel")
+	}
+	got := m.selectionText()
+	want := "one\ntwo\nthree\n"
+	if got != want {
+		t.Errorf("select-all text = %q, want %q", got, want)
 	}
 }
 
