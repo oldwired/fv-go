@@ -223,43 +223,72 @@ func showLogViewer(a *app.Application) {
 // --- MarkdownView ---------------------------------------------------
 
 func showMarkdown(a *app.Application) {
-	win := views.NewWindow(geom.NewRect(1, 1, 70, 22), "Markdown", 0)
+	win := views.NewWindow(geom.NewRect(1, 1, 78, 24), "Markdown", 0)
 	w, h := win.Size.X, win.Size.Y
 	scroll := views.NewScrollBar(geom.NewRect(w-2, 1, w-1, h-1))
 	win.Insert(scroll)
 	md := markdown.New(geom.NewRect(1, 1, w-2, h-1), scroll)
 	md.SetMarkdown(`# Markdown Showcase
 
-This widget renders a basic subset of Markdown.
+ATX H1 above; Setext styles below.
+
+Setext H1
+=========
+
+Setext H2
+---------
 
 ## Inline styles
 
-Regular text, **bold text**, *italic text*, and ` + "`inline code`" + `.
+Plain text, **bold**, __also bold__, *italic*, _also italic_,
+` + "`inline code`" + `, ~~strikethrough~~. Escapes work too:
+\*literal stars\* and snake_case_var stay literal.
 
 ## Lists
 
-- First bullet point
-- Second one
-- Third one
+- Dash bullet
+* Star bullet
++ Plus bullet
 
 1. Numbered first
 2. Numbered second
 
-## Code block
+## Code
 
-` + "```" + `
+Fenced with language hint:
+
+` + "```go" + `
 func main() {
     fmt.Println("Hello, world!")
 }
 ` + "```" + `
 
+Or indented:
+
+    int x = 42;
+
 ## Blockquote
 
-> "Markdown is a way to write…"
+> Markdown can write *this* and **that**.
+>
+> Empty line preserved above.
 
-## Link
+## Links
 
-Visit [the project](https://example.com/fv-go) for more.
+Inline: [the project](https://example.com/fv-go)
+Autolink: <https://github.com/oldwired/fv-go>
+Email:    <hello@example.com>
+Image:    ![Diagram](images/diagram.png)
+
+## Tables
+
+| Feature       | Status   | Notes                       |
+| :----------   | :------: | --------------------------: |
+| **Headings**  | *done*   | ATX + Setext                |
+| ` + "`Inline`" + `      | *done*   | bold, italic, ~~strike~~    |
+| Links         | *done*   | [docs](https://example.com) |
+| ![pic](x.png) | <h@x.io> | autolink + email            |
+| Tables        | *done*   | even cells with **markup**  |
 
 ---
 

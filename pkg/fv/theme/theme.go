@@ -196,6 +196,11 @@ type Palette struct {
 	MarkdownEmph    uint16
 	MarkdownCode    uint16
 	MarkdownLink    uint16
+	MarkdownStrike  uint16
+	MarkdownBullet  uint16
+	MarkdownQuote   uint16
+	MarkdownRule    uint16
+	MarkdownImage   uint16
 
 	// Hex editor
 	HexAddr    uint16
@@ -415,6 +420,11 @@ var Default = &Palette{
 	MarkdownEmph:    types.MakeAttr(0x0F, 0x01),
 	MarkdownCode:    types.MakeAttr(0x0B, 0x01),
 	MarkdownLink:    types.MakeAttr(0x09, 0x01),
+	MarkdownStrike:  types.MakeAttr(0x08, 0x01), // dimmed strike-through (no underline in cell model — color cues it)
+	MarkdownBullet:  types.MakeAttr(0x0B, 0x01),
+	MarkdownQuote:   types.MakeAttr(0x06, 0x01),
+	MarkdownRule:    types.MakeAttr(0x08, 0x01),
+	MarkdownImage:   types.MakeAttr(0x0D, 0x01),
 
 	HexAddr:    types.MakeAttr(0x07, 0x01),
 	HexByte:    types.MakeAttr(0x0E, 0x01),
