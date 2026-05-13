@@ -574,6 +574,69 @@ func (t *Terminal) searchStep(delta int) {
 	}
 }
 
+// cellRange is a [start, end) range of cell indices used for
+// search-match highlights inside a single row.
+type cellRange struct{ start, end int }
+
+// searchMatchesInRow returns all non-overlapping occurrences of
+// `needle` (already lower-cased) in the row's case-folded text, as
+// cell-index ranges suitable for highlighting. Empty needle / empty
+// row returns nil.
+//
+// Byte offsets into the haystack are mapped back to cell indices via
+// a parallel byte→cell table built from the row's cell list — this
+// lets us highlight matches that contain multi-byte (UTF-8) runes
+// without throwing the offsets off.
+func searchMatchesInRow(row []cell, needle string) []cellRange {
+	if needle == "" || len(row) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	sb.Grow(len(row))
+	byteToCell := make([]int, 0, len(row)+8)
+	for i, c := range row {
+		startByte := sb.Len()
+		if c.Ch == 0 {
+			sb.WriteByte(' ')
+		} else {
+			sb.WriteRune(c.Ch)
+		}
+		for b := startByte; b < sb.Len(); b++ {
+			byteToCell = append(byteToCell, i)
+		}
+	}
+	hay := strings.ToLower(sb.String())
+	var out []cellRange
+	pos := 0
+	for pos <= len(hay)-len(needle) {
+		idx := strings.Index(hay[pos:], needle)
+		if idx < 0 {
+			break
+		}
+		matchByte := pos + idx
+		lastByte := matchByte + len(needle) - 1
+		if lastByte >= len(byteToCell) {
+			break
+		}
+		out = append(out, cellRange{
+			start: byteToCell[matchByte],
+			end:   byteToCell[lastByte] + 1,
+		})
+		pos = matchByte + len(needle)
+	}
+	return out
+}
+
+// inAnyRange reports whether x falls inside any of the given ranges.
+func inAnyRange(ranges []cellRange, x int) bool {
+	for _, r := range ranges {
+		if x >= r.start && x < r.end {
+			return true
+		}
+	}
+	return false
+}
+
 // rowContains reports whether the case-folded text of row contains
 // needle (already lowercased). Skips empty rows quickly.
 func rowContains(row []cell, needle string) bool {
@@ -805,6 +868,42 @@ func (t *Terminal) scrollBy(delta int) {
 	t.mu.Unlock()
 }
 
+// StartScrollbackSearch puts the widget into the same "/" search mode
+// the user gets by pressing '/' while viewing scrollback, but driven
+// programmatically — for hosts (fvmux, …) that bind their own
+// "find-in-scrollback" shortcut. After this returns, typed characters
+// go into the search query, Enter jumps to the first match, and n/N
+// step. CancelScrollbackSearch exits the mode without committing.
+//
+// If the viewport is currently at the live bottom (scrollOffset == 0),
+// we nudge into scrollback by one line so the search-mode UI is
+// visible — searching at the live tail has no history to scan.
+func (t *Terminal) StartScrollbackSearch() {
+	t.mu.Lock()
+	if t.buf.scrollOffset == 0 {
+		// Don't reuse scrollBy here: it acquires t.mu and would
+		// deadlock. The buffer helper mutates without locking.
+		t.buf.scrollByLines(1)
+	}
+	t.searching = true
+	t.searchQuery = t.searchQuery[:0]
+	t.mu.Unlock()
+	views.MarkDirty()
+}
+
+// CancelScrollbackSearch exits search mode and clears the query.
+// Safe to call when not searching (no-op).
+func (t *Terminal) CancelScrollbackSearch() {
+	t.mu.Lock()
+	wasSearching := t.searching || len(t.searchQuery) > 0
+	t.searching = false
+	t.searchQuery = t.searchQuery[:0]
+	t.mu.Unlock()
+	if wasSearching {
+		views.MarkDirty()
+	}
+}
+
 // ChangeBounds rezises the buffer + the underlying PTY.
 func (t *Terminal) ChangeBounds(r geom.Rect) {
 	t.SetBounds(r)
@@ -824,11 +923,28 @@ func (t *Terminal) Draw() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	selA, selB, hasSel := t.normalizedSelection()
+	// Pre-build the search needle once per Draw. Search highlights
+	// fire when a query is present, regardless of whether the input
+	// line (`searching`) is currently up — n/N navigation after Enter
+	// clears `searching` but the user expects matches to stay lit so
+	// they can spot subsequent hits as they step through.
+	var needle string
+	if len(t.searchQuery) > 0 {
+		needle = strings.ToLower(string(t.searchQuery))
+	}
+	highlightAttr := types.MakeAttr(0x00, 0x0E) // black on yellow — the classic "found" cue
 	for y := 0; y < t.Size.Y; y++ {
 		row := screen.MakeDrawBuffer(t.Size.X)
 		src := t.buf.rowAt(y)
 		// Absolute row index for selection comparison.
 		absRow := len(t.buf.scrollback) - t.buf.scrollOffset + y
+		// Match ranges for this row's source cells. We compute them
+		// up front because the [x] loop needs cell-index info that's
+		// awkward to derive inside the per-cell switch.
+		var matches []cellRange
+		if needle != "" {
+			matches = searchMatchesInRow(src, needle)
+		}
 		for x := 0; x < t.Size.X; x++ {
 			var cl cell
 			if x < len(src) {
@@ -839,6 +955,11 @@ func (t *Terminal) Draw() {
 			row[x] = cl.toDrawCell(t.DefaultFG, t.DefaultBG)
 			if row[x].Ch == "" {
 				row[x].Ch = " "
+			}
+			// Search-match highlight FIRST so selection overrides it
+			// on overlap — selection is user-driven and should win.
+			if inAnyRange(matches, x) {
+				row[x].Attr = highlightAttr
 			}
 			if hasSel && inSelection(absRow, x, selA, selB) {
 				// Reverse video for selected cells. Preserve the
