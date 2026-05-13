@@ -163,6 +163,15 @@ type Window struct {
 	// OnResize fires after a resize-handle drag completes, with the
 	// window's final size. Same on-completion semantics as OnMove.
 	OnResize func(geom.Point)
+
+	// OnClose fires when Close() runs — frame close-box click, an
+	// external Close() call, or a modal window's EndModal exit. Hosts
+	// use this to drop the window from their own lists, stop attached
+	// PTYs, etc. Fired BEFORE the actual removal (Owner.Delete or
+	// EndModal), so the window is still live: Owner is non-nil,
+	// children are intact, and the callback can walk descendants
+	// safely (e.g., to find Terminal children that need Stop()).
+	OnClose func()
 }
 
 // NewWindow constructs a Window with the given bounds, title, and number.
@@ -365,7 +374,13 @@ func (w *Window) HandleEvent(ev *drivers.Event) {
 // Close ends the modal loop with cmCancel for modal windows; for
 // non-modal ones it removes the window from its parent group entirely.
 // Exported so menu commands and other code paths can request closing.
+// OnClose fires before the actual removal — the window is still
+// attached and its children are reachable, so hosts can walk the
+// subtree (e.g., to stop Terminal PTYs) before fv-go drops it.
 func (w *Window) Close() {
+	if w.OnClose != nil {
+		w.OnClose()
+	}
 	if w.GetState(consts.SfModal) {
 		w.EndModal(consts.CmCancel)
 		return
