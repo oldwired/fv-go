@@ -8,6 +8,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -49,11 +50,11 @@ func New(bounds geom.Rect) *VUMeter {
 		RedAt:      0.85,
 		PeakDecay:  0.5, // 50% of full scale per second
 		FallRate:   1.0,
-		GreenAttr:  types.MakeAttr(0x0A, 0x00),
-		YellowAttr: types.MakeAttr(0x0E, 0x00),
-		RedAttr:    types.MakeAttr(0x0C, 0x00),
-		BackAttr:   types.MakeAttr(0x08, 0x00),
-		PeakAttr:   types.MakeAttr(0x0F, 0x00),
+		GreenAttr:  theme.Get().GaugeGood,
+		YellowAttr: theme.Get().GaugeWarn,
+		RedAttr:    theme.Get().GaugeCrit,
+		BackAttr:   theme.Get().GaugeBack,
+		PeakAttr:   theme.Get().GaugeLabel,
 		lastTick:   time.Now(),
 	}
 	v.SetSelf(v)

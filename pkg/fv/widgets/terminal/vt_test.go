@@ -122,3 +122,65 @@ func TestParserOSCTitle(t *testing.T) {
 		t.Errorf("OnTitle got %q, want %q", got, "hello")
 	}
 }
+
+// TestParserOSC7CWD verifies "ESC ] 7 ; file://host/path ST" surfaces
+// via OnCWD with host stripped and percent-decoding applied.
+func TestParserOSC7CWD(t *testing.T) {
+	b := newBuffer(10, 3)
+	p := newParser(b)
+	var got string
+	p.OnCWD = func(s string) { got = s }
+	p.Feed([]byte("\x1b]7;file://host/Users/me/project%20name\x07"))
+	if got != "/Users/me/project name" {
+		t.Errorf("OnCWD got %q, want %q", got, "/Users/me/project name")
+	}
+	// Hostless form (file:///path) should also work.
+	got = ""
+	p.Feed([]byte("\x1b]7;file:///tmp\x07"))
+	if got != "/tmp" {
+		t.Errorf("OnCWD got %q, want %q", got, "/tmp")
+	}
+}
+
+// TestParserBracketedPaste verifies that DECSET/DECRST ?2004 toggles
+// the buffer's bracketedPaste flag.
+func TestParserBracketedPaste(t *testing.T) {
+	b := newBuffer(10, 3)
+	p := newParser(b)
+	if b.bracketedPaste {
+		t.Fatal("bracketedPaste default should be false")
+	}
+	p.Feed([]byte("\x1b[?2004h"))
+	if !b.bracketedPaste {
+		t.Errorf("DECSET ?2004 did not enable bracketedPaste")
+	}
+	p.Feed([]byte("\x1b[?2004l"))
+	if b.bracketedPaste {
+		t.Errorf("DECRST ?2004 did not disable bracketedPaste")
+	}
+}
+
+// TestParserBellCallback verifies that a BEL in the ground state fires
+// OnBell, while a BEL inside an OSC string (string-terminator) does
+// NOT fire it — only protocol BELs count.
+func TestParserBellCallback(t *testing.T) {
+	b := newBuffer(10, 3)
+	p := newParser(b)
+	count := 0
+	p.OnBell = func() { count++ }
+	// Ground-state BEL.
+	p.Feed([]byte("\x07"))
+	if count != 1 {
+		t.Errorf("after ground BEL, count = %d, want 1", count)
+	}
+	// OSC-terminator BEL (after OSC 0;title) should NOT count.
+	p.Feed([]byte("\x1b]0;foo\x07"))
+	if count != 1 {
+		t.Errorf("OSC-terminator BEL fired OnBell (count = %d, want 1)", count)
+	}
+	// Another ground BEL.
+	p.Feed([]byte("\x07"))
+	if count != 2 {
+		t.Errorf("after second ground BEL, count = %d, want 2", count)
+	}
+}

@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -26,7 +26,7 @@ func New(bounds geom.Rect) *UptimeView {
 	u := &UptimeView{
 		Base:  views.NewBase(bounds),
 		Start: time.Now(),
-		Color: types.MakeAttr(0x0E, 0x01),
+		Color: theme.Get().StatValue,
 	}
 	u.SetSelf(u)
 	anim.Register(u, time.Second)

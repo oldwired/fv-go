@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -45,7 +45,7 @@ func New(bounds geom.Rect, text string) *Marquee {
 		Direction: DirLeft,
 		Speed:     150 * time.Millisecond,
 		Gap:       4,
-		Color:     types.MakeAttr(0x0E, 0x01),
+		Color:     theme.Get().MarqueeText,
 	}
 	m.SetSelf(m)
 	anim.Register(m, m.Speed)

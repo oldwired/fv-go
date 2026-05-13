@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/clipboard"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
@@ -26,14 +27,51 @@ type Terminal struct {
 
 	DefaultFG, DefaultBG byte
 
+	// ScrollbackLines, if non-zero, overrides the default 2000-line
+	// scrollback cap. Honored by Start(); set before launching the
+	// child. Mutating after Start() has no effect on the live buffer.
+	ScrollbackLines int
+
+	// Env is the late-bound environment for the spawned child. If nil
+	// at Start() time, the current process environment is inherited
+	// (with TERM patched to xterm-256color). Use SetEnv to set this
+	// after construction but before Start().
+	Env []string
+
+	// WorkingDir is the late-bound working directory for the spawned
+	// child. Empty means the parent's cwd. Use SetWorkingDir to set
+	// this after construction but before Start().
+	WorkingDir string
+
 	// Title is the latest OSC 0/1/2 string the child sent. Empty
 	// until the child sets one.
 	Title string
+
+	// CWD is the latest OSC 7 cwd string the child reported. Empty
+	// until the shell emits one (zsh / bash with PROMPT_COMMAND or
+	// equivalent integration).
+	CWD string
 
 	// OnTitle, if non-nil, fires from the reader goroutine whenever
 	// Title changes — typically used to update the host window's
 	// caption. Goroutine-safe: callbacks should not block.
 	OnTitle func(string)
+
+	// OnCWDChange fires when an OSC 7 sequence updates CWD. Used by
+	// hosts (e.g., fvmux) to surface the focused pane's cwd in the
+	// status bar.
+	OnCWDChange func(string)
+
+	// OnActivity fires from the reader goroutine when fresh PTY output
+	// arrives, but no more often than once per 500ms. Hosts use this
+	// to flash status-bar activity dots without redrawing on every
+	// chunk.
+	OnActivity func()
+
+	// OnBell fires when the parser sees a BEL (0x07) byte in the
+	// ground state (i.e., not as an OSC string terminator). Used for
+	// audible / visible bell hooks.
+	OnBell func()
 
 	// OnExit fires once when the child process exits (also from the
 	// reader goroutine). Used to auto-close the wrapping window.
@@ -44,6 +82,23 @@ type Terminal struct {
 	pty    *ptyHandle
 	mu     sync.Mutex
 	closed bool
+
+	// lastActivity is the wall-clock time of the most recent
+	// OnActivity fire. Read/written only by the reader goroutine
+	// (no other path mutates it), so no lock is needed.
+	lastActivity time.Time
+
+	// mouseSuspended gates the mouse-forwarding paths. When true,
+	// HandleEvent stops writing SGR-1006 sequences to the PTY,
+	// letting fvmux's copy/resize modes intercept mouse without the
+	// inner shell seeing it. Selection handling proceeds as normal.
+	mouseSuspended bool
+
+	// focused is the host's view of whether this pane is focused. When
+	// false, Draw suppresses the cursor regardless of the buffer's
+	// DECTCEM state — so an unfocused split doesn't blink. Defaults
+	// to true so single-pane callers keep current behavior.
+	focused bool
 
 	// Scrollback search. Active while searching is true; the user
 	// types into searchQuery, hits Enter to jump to the first match
@@ -74,6 +129,7 @@ func New(bounds geom.Rect) *Terminal {
 		Base:      views.NewBase(bounds),
 		DefaultFG: 0x07,
 		DefaultBG: 0x00,
+		focused:   true,
 	}
 	t.SetSelf(t)
 	t.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
@@ -85,18 +141,30 @@ func New(bounds geom.Rect) *Terminal {
 	t.State |= consts.SfRawKeys
 	t.buf = newBuffer(t.Size.X, t.Size.Y)
 	t.par = newParser(t.buf)
-	// IMPORTANT: OnTitle fires from inside par.Feed, which is always
-	// called with t.mu already held (either by readLoop or by Write).
-	// Acquiring t.mu here would self-deadlock — when we tried, zsh
-	// hung in tcsetattr (TCSADRAIN waiting on a PTY buffer the reader
-	// could no longer drain) and the whole UI froze. Title is set
-	// under the caller's lock, no further sync needed.
+	// IMPORTANT: OnTitle / OnCWD / OnBell fire from inside par.Feed,
+	// which is always called with t.mu already held (either by
+	// readLoop or by Write). Acquiring t.mu here would self-deadlock —
+	// when we tried, zsh hung in tcsetattr (TCSADRAIN waiting on a PTY
+	// buffer the reader could no longer drain) and the whole UI froze.
+	// State is set under the caller's lock, no further sync needed.
 	t.par.OnTitle = func(title string) {
 		t.Title = title
 		if t.OnTitle != nil {
 			t.OnTitle(title)
 		}
 		views.MarkDirty()
+	}
+	t.par.OnCWD = func(cwd string) {
+		t.CWD = cwd
+		if t.OnCWDChange != nil {
+			t.OnCWDChange(cwd)
+		}
+		views.MarkDirty()
+	}
+	t.par.OnBell = func() {
+		if t.OnBell != nil {
+			t.OnBell()
+		}
 	}
 	return t
 }
@@ -108,15 +176,25 @@ func (t *Terminal) GetTypeID() string { return "terminal" }
 // immediately; the view will start drawing the first output as soon
 // as the child writes anything.
 //
-// If env is nil, the current process environment is used (with TERM
-// patched to "xterm-256color" so curses-based programs negotiate
-// reasonable capabilities).
+// If env is nil and t.Env is unset, the current process environment is
+// used (with TERM patched to "xterm-256color" so curses-based programs
+// negotiate reasonable capabilities). t.WorkingDir, if non-empty, is
+// the child's initial cwd; empty means inherit. t.ScrollbackLines, if
+// non-zero, replaces the default 2000-line cap.
 func (t *Terminal) Start(name string, args []string, env []string) error {
+	if t.ScrollbackLines > 0 {
+		t.mu.Lock()
+		t.buf.scrollbackCap = t.ScrollbackLines
+		t.mu.Unlock()
+	}
+	if t.Env != nil {
+		env = t.Env
+	}
 	if env == nil {
 		env = append(env, os.Environ()...)
 		env = append(env, "TERM=xterm-256color")
 	}
-	p, err := startPTY(name, args, env, t.Size.X, t.Size.Y)
+	p, err := startPTY(name, args, env, t.WorkingDir, t.Size.X, t.Size.Y)
 	if err != nil {
 		return err
 	}
@@ -124,6 +202,96 @@ func (t *Terminal) Start(name string, args []string, env []string) error {
 	go t.readLoop()
 	go t.waitLoop()
 	return nil
+}
+
+// SetEnv stores env for the next Start() call. Has no effect after the
+// child has been launched.
+func (t *Terminal) SetEnv(env []string) { t.Env = env }
+
+// SetWorkingDir stores dir for the next Start() call. Has no effect
+// after the child has been launched.
+func (t *Terminal) SetWorkingDir(dir string) { t.WorkingDir = dir }
+
+// SetFocused tells the Terminal whether its parent considers this pane
+// focused. Drives cursor suppression so unfocused panes don't blink.
+// Defaults to true; single-pane callers needn't touch this.
+func (t *Terminal) SetFocused(v bool) {
+	t.mu.Lock()
+	changed := t.focused != v
+	t.focused = v
+	t.mu.Unlock()
+	if changed {
+		views.MarkDirty()
+	}
+}
+
+// SuspendMouseForwarding toggles forwarding of mouse events to the
+// child PTY. While suspended, the local selection / scroll-wheel paths
+// continue to work but no SGR-1006 sequences are written. Used by
+// hosts that want to take over the mouse temporarily (e.g., a copy
+// mode or pane-resize mode) without the inner shell seeing events.
+func (t *Terminal) SuspendMouseForwarding(v bool) {
+	t.mu.Lock()
+	t.mouseSuspended = v
+	t.mu.Unlock()
+}
+
+// BracketedPaste reports whether the inner program has enabled DEC
+// mode ?2004 (bracketed paste). Hosts use this to decide whether to
+// wrap a clipboard paste in the escape brackets.
+func (t *Terminal) BracketedPaste() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.buf.bracketedPaste
+}
+
+// Paste writes text to the PTY, wrapping in bracketed-paste escapes
+// (\x1b[200~ … \x1b[201~) when the inner program has enabled DEC mode
+// ?2004. Without bracketing, multiline pastes execute line-by-line in
+// shells — broken UX.
+func (t *Terminal) Paste(text string) error {
+	if t.pty == nil {
+		return nil
+	}
+	t.mu.Lock()
+	wrap := t.buf.bracketedPaste
+	t.mu.Unlock()
+	var payload []byte
+	if wrap {
+		payload = make([]byte, 0, len(text)+12)
+		payload = append(payload, "\x1b[200~"...)
+		payload = append(payload, text...)
+		payload = append(payload, "\x1b[201~"...)
+	} else {
+		payload = []byte(text)
+	}
+	_, err := t.pty.Write(payload)
+	return err
+}
+
+// ScrollbackText returns the entire buffer (scrollback + live region)
+// as plain text. Trailing blanks per row are trimmed; rows are
+// separated by '\n'. Used by "save scrollback to file" commands.
+func (t *Terminal) ScrollbackText() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	total := len(t.buf.scrollback) + len(t.buf.cells)
+	if total == 0 {
+		return ""
+	}
+	lastCol := t.buf.W - 1
+	if lastCol < 0 {
+		lastCol = 0
+	}
+	return t.extractText(cellPos{row: 0, col: 0}, cellPos{row: total - 1, col: lastCol})
+}
+
+// SelectionText returns the currently selected region, or "" when
+// nothing is selected.
+func (t *Terminal) SelectionText() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.extractSelectionText()
 }
 
 // Stop kills the child and tears down the PTY. Safe to call multiple
@@ -154,7 +322,11 @@ func (t *Terminal) PID() int {
 // closes (typically because the child exited). On exit / error we
 // inject a visible "[pty closed: <err>]" line so a silent child
 // process doesn't look like a hung terminal.
+//
+// OnActivity fires at most once per 500ms — frequent enough for a
+// flashing status-bar dot, sparse enough not to thrash the host.
 func (t *Terminal) readLoop() {
+	const activityDebounce = 500 * time.Millisecond
 	buf := make([]byte, 4096)
 	for {
 		n, err := t.pty.Read(buf)
@@ -162,6 +334,13 @@ func (t *Terminal) readLoop() {
 			t.mu.Lock()
 			t.par.Feed(buf[:n])
 			t.mu.Unlock()
+			now := time.Now()
+			if t.OnActivity != nil && now.Sub(t.lastActivity) >= activityDebounce {
+				t.lastActivity = now
+				// Fire without holding t.mu — callbacks may want to
+				// hop onto the UI thread / call back into views.
+				t.OnActivity()
+			}
 			views.MarkDirty()
 		}
 		if err != nil {
@@ -478,7 +657,7 @@ func (t *Terminal) handleMouse(ev *drivers.Event) {
 	// Mouse forwarding to the PTY.
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !tracking {
+	if !tracking || t.mouseSuspended {
 		return
 	}
 	if ev.What == consts.EvMouseMove && !t.buf.mouseBtnEv && !t.buf.mouseAnyEv {
@@ -547,16 +726,21 @@ func (t *Terminal) handleSelectionEvent(ev *drivers.Event) {
 	t.ClearEvent(ev)
 }
 
-// extractSelectionText walks the cells inside the current selection
-// rectangle and joins them into a single multi-line string. Must be
-// called with t.mu held. Returns "" for an empty / degenerate
-// selection (start == end on the same cell).
+// extractSelectionText returns the current selection as text, or ""
+// when nothing is selected. Must be called with t.mu held.
 func (t *Terminal) extractSelectionText() string {
-	a, b := t.selStartAbs, t.selEndAbs
-	if a == b {
+	if t.selStartAbs == t.selEndAbs {
 		return ""
 	}
-	// Normalize: a is upper-left, b is lower-right by row order.
+	return t.extractText(t.selStartAbs, t.selEndAbs)
+}
+
+// extractText walks the cells inside the [a, b] rectangle (in absolute
+// scrollback-plus-live coordinates) and joins them into a single
+// multi-line string. a and b need not be normalized — extractText
+// sorts them top-left → bottom-right. Trailing blanks per row are
+// trimmed (except on the final row). Must be called with t.mu held.
+func (t *Terminal) extractText(a, b cellPos) string {
 	if a.row > b.row || (a.row == b.row && a.col > b.col) {
 		a, b = b, a
 	}
@@ -680,7 +864,7 @@ func (t *Terminal) Draw() {
 		}
 		t.drawStatusRow(hint)
 		t.State &^= consts.SfCursorVis
-	} else if t.buf.cursorVisible {
+	} else if t.buf.cursorVisible && t.focused {
 		t.Cursor = geom.Point{X: t.buf.cursorC, Y: t.buf.cursorR}
 		t.State |= consts.SfCursorVis
 	} else {

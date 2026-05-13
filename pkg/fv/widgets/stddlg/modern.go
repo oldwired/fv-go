@@ -13,7 +13,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/treeview"
 )
@@ -359,8 +359,9 @@ func (ip *infoPane) set(name string, size int64, mod time.Time) {
 
 func (ip *infoPane) Draw() {
 	w, h := ip.Size.X, ip.Size.Y
-	frame := types.MakeAttr(0x00, 0x03) // black on cyan, dialog body palette
-	text := types.MakeAttr(0x00, 0x03)
+	pal := theme.Get()
+	frame := pal.DialogBackground
+	text := pal.DialogBackground
 	for y := 0; y < h; y++ {
 		buf := screen.MakeDrawBuffer(w)
 		for x := 0; x < w; x++ {

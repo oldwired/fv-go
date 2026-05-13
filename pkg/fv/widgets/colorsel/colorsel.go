@@ -15,6 +15,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -83,7 +84,7 @@ func (c *ColorSelector) Draw() {
 	footY := 4 * swatchHeight
 	if footY < c.Size.Y {
 		row := screen.MakeDrawBuffer(c.Size.X)
-		caption := types.MakeAttr(0x0F, 0x01)
+		caption := theme.Get().StatHeader
 		for x := 0; x < c.Size.X; x++ {
 			screen.DrawCell(row, x, " ", caption)
 		}

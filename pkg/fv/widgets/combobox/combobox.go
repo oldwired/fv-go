@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/popupmenu"
 )
@@ -39,9 +39,10 @@ func (c *ComboBox) SetItems(items []string) { c.Items = items }
 func (c *ComboBox) Draw() {
 	c.InputLine.Draw()
 	if c.Size.X >= 1 {
-		arrow := types.MakeAttr(0x00, 0x07)
+		pal := theme.Get()
+		arrow := pal.InputUnfocused
 		if c.GetState(consts.SfFocused) {
-			arrow = types.MakeAttr(0x0F, 0x06)
+			arrow = pal.ComboButton
 		}
 		row := screen.DrawBuffer{{Ch: "▾", Attr: arrow}}
 		c.WriteLine(c.Size.X-1, 0, 1, 1, row)

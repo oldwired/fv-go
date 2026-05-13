@@ -5,7 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -110,12 +110,11 @@ func (c *RadioButtons) HandleEvent(ev *drivers.Event) {
 }
 
 func drawCluster(c *Cluster, lb, rb, marked, unmarked string) {
-	// Dialog cluster palette: light-gray on blue, with bright-yellow
-	// hotkey, and white-on-cyan when focused.
-	normal := types.MakeAttr(0x07, 0x01)
-	hot := types.MakeAttr(0x0E, 0x01)
-	focusNormal := types.MakeAttr(0x0F, 0x03)
-	focusHot := types.MakeAttr(0x0E, 0x03)
+	pal := theme.Get()
+	normal := pal.ClusterNormal
+	hot := pal.ClusterHot
+	focusNormal := pal.ClusterFocusNormal
+	focusHot := pal.ClusterFocusHot
 	for y, label := range c.Strings {
 		if y >= c.Size.Y {
 			break

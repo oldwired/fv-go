@@ -7,7 +7,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -35,8 +35,8 @@ func New(bounds geom.Rect, segments []Segment) *Breadcrumb {
 		Base:        views.NewBase(bounds),
 		Segments:    segments,
 		Separator:   " › ",
-		Color:       types.MakeAttr(0x07, 0x01),
-		ActiveColor: types.MakeAttr(0x0F, 0x01),
+		Color:       theme.Get().TreeNormal,
+		ActiveColor: theme.Get().StatHeader,
 	}
 	b.SetSelf(b)
 	b.GrowMode = consts.GfGrowHiX

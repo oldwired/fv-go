@@ -9,6 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -39,10 +40,10 @@ func New(bounds geom.Rect, sampler Sampler, interval time.Duration) *CPUCoreView
 		Base:       views.NewBase(bounds),
 		Sample:     sampler,
 		Interval:   interval,
-		BarColor:   types.MakeAttr(0x0A, 0x00),
-		BackColor:  types.MakeAttr(0x08, 0x00),
-		HighColor:  types.MakeAttr(0x0C, 0x00),
-		LabelColor: types.MakeAttr(0x07, 0x00),
+		BarColor:   theme.Get().GaugeGood,
+		BackColor:  theme.Get().GaugeBack,
+		HighColor:  theme.Get().GaugeCrit,
+		LabelColor: theme.Get().StatLabel,
 	}
 	c.SetSelf(c)
 	if sampler != nil {

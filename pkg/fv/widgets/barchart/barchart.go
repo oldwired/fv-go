@@ -7,6 +7,7 @@ import (
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -41,10 +42,10 @@ func New(bounds geom.Rect) *BarChart {
 		ShowValue: true,
 		BarChar:   '█',
 		BackChar:  '░',
-		BarAttr:   types.MakeAttr(0x0B, 0x01),
-		BackAttr:  types.MakeAttr(0x08, 0x01),
-		LabelAttr: types.MakeAttr(0x0F, 0x01),
-		ValueAttr: types.MakeAttr(0x0E, 0x01),
+		BarAttr:   theme.Get().ChartBar2,
+		BackAttr:  theme.Get().EditorComment,
+		LabelAttr: theme.Get().StatHeader,
+		ValueAttr: theme.Get().BlinkText,
 	}
 	b.SetSelf(b)
 	return b

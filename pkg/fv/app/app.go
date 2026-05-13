@@ -15,6 +15,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/help"
 	"github.com/oldwired/fv-go/pkg/fv/term"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -39,6 +40,29 @@ type Program struct {
 	// view tree didn't consume. Returning true marks the command as
 	// handled and prevents further propagation.
 	OnCommand func(cmd uint16, ev *drivers.Event) bool
+
+	// OnQuitRequest, if non-nil, runs when CmQuitApp arrives at the
+	// main loop. Returning false vetoes the quit (the event is
+	// swallowed); returning true lets the program exit normally. Use
+	// this to surface "really quit? N running terminals" dialogs
+	// without poking around in OnCommand.
+	OnQuitRequest func() (proceed bool)
+
+	// OnPanic, if non-nil, runs in the deferred recover inside Run()
+	// when a panic propagates out of the main loop. After OnPanic
+	// returns, Done() is called to clean up children (PTYs, …) and
+	// the panic is re-thrown so the caller still sees it. Hosts can
+	// use this to log a crash report before the process dies.
+	OnPanic func(recovered any)
+}
+
+// Stoppable is implemented by views that own external resources (PTYs,
+// file watchers, network connections, …) and need a deterministic
+// teardown when the program exits. Application.Done() walks the tree
+// and calls Stop() on each descendant that satisfies this — Terminal
+// uses it to send SIGHUP to its child shell.
+type Stoppable interface {
+	Stop()
 }
 
 // NewProgram constructs an empty Program. App.Init wires the backend.
@@ -65,6 +89,10 @@ func NewProgram(backend term.Backend) *Program {
 		}
 	})
 	views.SetRootBackend(backend)
+	// A theme.Set() during the program's lifetime should repaint.
+	// Wired here (not in the theme package) to keep the theme package
+	// free of any views dependency.
+	theme.SetOnChange(views.MarkDirty)
 	return p
 }
 
@@ -234,7 +262,28 @@ func (p *Program) SetDesktop(d *Desktop) {
 func (p *Program) Quit() { p.quit = true }
 
 // Run drives the program loop until Quit() is called or cmQuit fires.
+//
+// If OnPanic is set, panics propagating out of the loop are caught,
+// passed to OnPanic, the program's Done() cleanup runs, and the panic
+// is re-thrown so the caller still observes the crash. This is
+// belt-and-braces with `defer app.Done()` at the call site — the
+// recover ensures PTY children get SIGHUP even if Done was never
+// deferred (e.g., during a unit test).
 func (p *Program) Run() {
+	if p.OnPanic != nil {
+		defer func() {
+			if r := recover(); r != nil {
+				p.OnPanic(r)
+				// If we're embedded in an Application, this Done call
+				// is redundant with the caller's `defer app.Done()`
+				// but harmless — Stop() / Close() are idempotent.
+				if a, ok := any(p).(interface{ Done() }); ok {
+					a.Done()
+				}
+				panic(r)
+			}
+		}()
+	}
 	p.State |= consts.SfActive | consts.SfVisible | consts.SfExposed
 	p.dirty = true // initial paint
 	for !p.quit {
@@ -256,6 +305,10 @@ func (p *Program) Run() {
 			continue
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
+			if !p.acceptQuit() {
+				p.dirty = true
+				continue
+			}
 			return
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuit {
@@ -268,10 +321,39 @@ func (p *Program) Run() {
 			}
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
+			if !p.acceptQuit() {
+				p.dirty = true
+				continue
+			}
 			return
 		}
 		// Anything we just handled could have changed visible state.
 		p.dirty = true
+	}
+}
+
+// acceptQuit consults OnQuitRequest. Returns true if the program is
+// allowed to exit (no callback or callback says yes), false to veto.
+func (p *Program) acceptQuit() bool {
+	if p.OnQuitRequest == nil {
+		return true
+	}
+	return p.OnQuitRequest()
+}
+
+// PostEvent queues ev for the main loop to consume on its next pass.
+// Goroutine-safe; also nudges the wake channel so a parked waitOne
+// returns immediately instead of sleeping until the next user input.
+// Useful for synthetic command events from background workers and
+// from scripted tests.
+func (p *Program) PostEvent(ev drivers.Event) {
+	if p.queue != nil {
+		p.queue.Put(ev)
+	}
+	p.dirty = true
+	select {
+	case p.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -493,7 +575,27 @@ func NewApplication() (*Application, error) {
 	return a, nil
 }
 
-// Done shuts down the backend, restoring the terminal.
+// Done shuts down the backend, restoring the terminal. Walks the view
+// tree first to call Stop() on any descendant that satisfies the
+// Stoppable interface (Terminal does), so child PTYs get SIGHUP
+// before the terminal is restored. Idempotent — safe to call twice.
 func (a *Application) Done() {
+	walkStop(&a.Group)
 	_ = a.backend.Close()
+}
+
+// walkStop descends the view tree depth-first / post-order, mirroring
+// walkPreFlush, and calls Stop() on every view that satisfies the
+// Stoppable interface. Used by Application.Done to tear down PTYs.
+func walkStop(g *views.Group) {
+	for _, c := range g.Children {
+		if gi, ok := c.(interface{ InnerGroup() *views.Group }); ok {
+			if inner := gi.InnerGroup(); inner != nil && inner != g {
+				walkStop(inner)
+			}
+		}
+		if s, ok := c.(Stoppable); ok {
+			s.Stop()
+		}
+	}
 }

@@ -11,18 +11,24 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
 // Item is a single menu entry. Submenu, command, or separator.
+//
+// Shortcut, when non-empty, renders right-aligned on the item row in
+// the dim palette role — a discoverability hint for the chord key
+// the user can press instead of navigating into the menu. (The string
+// is purely cosmetic; bind the actual chord elsewhere.)
 type Item struct {
 	Name     string // text, '~' marks the hotkey letter
 	Command  uint16 // 0 if Sub != nil (i.e., a submenu)
 	HelpCtx  uint16
 	Disabled bool
-	Sub      *Menu // non-nil if this is a submenu
+	Shortcut string // optional right-aligned hint, e.g. "Ctrl+S"
+	Sub      *Menu  // non-nil if this is a submenu
 }
 
 // Separator returns a horizontal-rule menu item.
@@ -66,12 +72,11 @@ func (m *MenuBar) GetTypeID() string { return "menubar" }
 
 // Draw paints the bar.
 func (m *MenuBar) Draw() {
-	// Black on light-gray; hotkey letter rendered red on the same bg.
-	normal := types.MakeAttr(0x00, 0x07)
-	hot := types.MakeAttr(0x04, 0x07)
-	// Highlighted item flips to white-on-green, with bright-yellow hot.
-	highlightNormal := types.MakeAttr(0x0F, 0x02)
-	highlightHot := types.MakeAttr(0x0E, 0x02)
+	pal := theme.Get()
+	normal := pal.MenuBarNormal
+	hot := pal.MenuBarHot
+	highlightNormal := pal.MenuItemSelected
+	highlightHot := pal.MenuItemSelectedHot
 
 	buf := screen.MakeDrawBuffer(m.Size.X)
 	for x := 0; x < m.Size.X; x++ {

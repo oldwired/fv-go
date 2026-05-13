@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -44,8 +44,8 @@ func New(bounds geom.Rect) *BlinkIndicator {
 		State:    StateOff,
 		OnChar:   '●',
 		OffChar:  '○',
-		OnAttr:   types.MakeAttr(0x0A, 0x03), // bright green on cyan
-		OffAttr:  types.MakeAttr(0x08, 0x03), // dark gray on cyan
+		OnAttr:   theme.Get().BlinkText,
+		OffAttr:  theme.Get().GaugeBack,
 		Interval: 500 * time.Millisecond,
 		visible:  true,
 	}

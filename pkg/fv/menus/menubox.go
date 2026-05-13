@@ -5,6 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
@@ -49,6 +50,7 @@ func (mb *MenuBox) GetTypeID() string { return "menubox" }
 func menuBoxSize(m *Menu) (w, h int) {
 	w = 0
 	hasSubmenu := false
+	shortcutW := 0
 	for _, it := range m.Items {
 		c := utf8.CStrDisplayWidth(it.Name)
 		if c > w {
@@ -57,11 +59,20 @@ func menuBoxSize(m *Menu) (w, h int) {
 		if it.IsSubmenu() {
 			hasSubmenu = true
 		}
+		if sw := utf8.StringDisplayWidth(it.Shortcut); sw > shortcutW {
+			shortcutW = sw
+		}
 	}
 	// Borders + left padding (+ extra room for the "▶" submenu marker).
 	w += 4
 	if hasSubmenu {
 		w += 2
+	}
+	// Reserve a right column for chord hints: padding + max shortcut
+	// width + trailing border padding. Only when at least one item
+	// declares a shortcut, so plain menus stay narrow.
+	if shortcutW > 0 {
+		w += 2 + shortcutW + 2
 	}
 	h = len(m.Items) + 2
 	return
@@ -244,11 +255,12 @@ func (mb *MenuBox) matchHotkey(letter byte) *Item {
 // Draw renders the popup. Called by the program's draw cycle since
 // MenuBox is a regular child of whatever group hosts it.
 func (mb *MenuBox) Draw() {
-	frame := types.MakeAttr(0x00, 0x07) // black on light gray
-	normal := types.MakeAttr(0x00, 0x07)
-	normalHot := types.MakeAttr(0x04, 0x07)   // red hot
-	selected := types.MakeAttr(0x0F, 0x02)    // white on green
-	selectedHot := types.MakeAttr(0x0E, 0x02) // bright yellow hot on green
+	pal := theme.Get()
+	frame := pal.MenuBoxFrame
+	normal := pal.MenuBoxNormal
+	normalHot := pal.MenuBoxNormalHot
+	selected := pal.MenuBoxSelected
+	selectedHot := pal.MenuBoxSelectedHot
 	w, h := mb.Size.X, mb.Size.Y
 
 	// Top border.
@@ -278,6 +290,25 @@ func (mb *MenuBox) Draw() {
 			screen.DrawCell(row, w-1, "┤", frame)
 		} else {
 			screen.DrawCStr(row, 2, it.Name, n, hk)
+			// Right-aligned chord hint. Falls between the name and the
+			// trailing border (or the submenu "▶" if both are set —
+			// the submenu marker wins the rightmost slot since it
+			// signals interactivity).
+			if it.Shortcut != "" {
+				sc := pal.MenuBoxShortcut
+				if i == mb.current {
+					sc = pal.MenuBoxShortcutSelected
+				}
+				sw := utf8.StringDisplayWidth(it.Shortcut)
+				rightEdge := w - 2
+				if it.IsSubmenu() {
+					rightEdge = w - 3 // leave room for "▶"
+				}
+				startX := rightEdge - sw + 1
+				if startX > 2+utf8.CStrDisplayWidth(it.Name)+1 {
+					screen.DrawStr(row, startX, it.Shortcut, sc)
+				}
+			}
 			if it.IsSubmenu() && w >= 4 {
 				screen.DrawCell(row, w-2, "▶", n)
 			}
@@ -304,7 +335,7 @@ func (mb *MenuBox) Draw() {
 		if cell.Ch == "" {
 			cell.Ch = " "
 		}
-		return types.DrawCell{Ch: cell.Ch, Attr: types.MakeAttr(0x08, 0x00)}
+		return types.DrawCell{Ch: cell.Ch, Attr: pal.MenuBoxShadow}
 	}
 	for y := 1; y <= h; y++ {
 		for dx := 0; dx < 2; dx++ {

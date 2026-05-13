@@ -7,6 +7,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/history"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/validators"
 	"github.com/oldwired/fv-go/pkg/fv/views"
@@ -156,9 +157,10 @@ func (il *InputLine) SetData(buf []byte) {
 
 // Draw paints the field, highlighting any active selection range.
 func (il *InputLine) Draw() {
-	bg := types.MakeAttr(0x00, 0x07)       // black on light gray (unfocused)
-	fg := types.MakeAttr(0x0F, 0x01)       // white on blue (focused)
-	selColor := types.MakeAttr(0x0F, 0x06) // bright white on yellow (selection)
+	pal := theme.Get()
+	bg := pal.InputUnfocused
+	fg := pal.InputFocused
+	selColor := pal.InputSelected
 	color := bg
 	if il.GetState(consts.SfFocused) {
 		color = fg

@@ -8,7 +8,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -44,7 +44,7 @@ func New(bounds geom.Rect) *Spinner {
 	s := &Spinner{
 		Base:  views.NewBase(bounds),
 		Set:   Dots,
-		Color: types.MakeAttr(0x0E, 0x03),
+		Color: theme.Get().SpinnerColor,
 	}
 	s.SetSelf(s)
 	return s

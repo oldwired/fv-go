@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/creack/pty"
 )
@@ -19,12 +20,22 @@ type ptyHandle struct {
 }
 
 // startPTY spawns the given command attached to a fresh PTY sized
-// w cols × h rows.
-func startPTY(name string, args []string, env []string, cols, rows int) (*ptyHandle, error) {
+// w cols × h rows. dir, if non-empty, is the child's initial working
+// directory.
+func startPTY(name string, args []string, env []string, dir string, cols, rows int) (*ptyHandle, error) {
 	cmd := exec.Command(name, args...)
 	if env != nil {
 		cmd.Env = env
 	}
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	// Setsid puts the child in its own session and process group.
+	// Without this, killing the parent leaves grandchildren (bash →
+	// vim → python) reparented to init instead of getting SIGHUP.
+	// creack/pty's StartWithSize already sets Setctty=true; we ensure
+	// Setsid is on too so the SIGHUP-to-pgrp path in Close() works.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
 	tty, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
@@ -39,6 +50,11 @@ func (p *ptyHandle) Read(b []byte) (int, error)  { return p.tty.Read(b) }
 func (p *ptyHandle) Write(b []byte) (int, error) { return p.tty.Write(b) }
 func (p *ptyHandle) Close() error {
 	if p.cmd != nil && p.cmd.Process != nil {
+		// SIGHUP the entire process group first so descendants
+		// (vim, less, etc. running under a shell) get a chance to
+		// clean up. Negative PID = pgrp. The shell's pgid equals
+		// its pid thanks to Setsid in startPTY.
+		_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGHUP)
 		_ = p.cmd.Process.Kill()
 	}
 	if p.tty != nil {

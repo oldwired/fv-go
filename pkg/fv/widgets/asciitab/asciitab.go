@@ -10,6 +10,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -29,8 +30,8 @@ type ASCIIChart struct {
 func New(bounds geom.Rect) *ASCIIChart {
 	c := &ASCIIChart{
 		Base:       views.NewBase(bounds),
-		Grid:       types.MakeAttr(0x07, 0x01),
-		FocusColor: types.MakeAttr(0x0F, 0x06),
+		Grid:       theme.Get().AsciiTabInactive,
+		FocusColor: theme.Get().InputArrow,
 	}
 	c.SetSelf(c)
 	c.Options |= consts.OfSelectable | consts.OfFirstClick

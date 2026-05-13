@@ -16,6 +16,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -50,10 +51,10 @@ func New(bounds geom.Rect, items []string) *FuzzyFinder {
 	f := &FuzzyFinder{
 		Base:       views.NewBase(bounds),
 		Items:      items,
-		FrameColor: types.MakeAttr(0x00, 0x07),
-		TextColor:  types.MakeAttr(0x00, 0x07),
-		HitColor:   types.MakeAttr(0x04, 0x07),
-		SelColor:   types.MakeAttr(0x0F, 0x02),
+		FrameColor: theme.Get().FuzzyFinderFrame,
+		TextColor:  theme.Get().PopupMenuNormal,
+		HitColor:   theme.Get().PopupMenuHot,
+		SelColor:   theme.Get().FuzzyFinderSelected,
 		chosen:     -1,
 	}
 	f.SetSelf(f)

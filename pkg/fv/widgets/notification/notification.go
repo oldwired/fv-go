@@ -10,7 +10,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -50,8 +50,8 @@ func New(host *views.Group, title, body string, pos Position, width int, timeout
 		Title:       title,
 		Body:        body,
 		Timeout:     timeout,
-		Color:       types.MakeAttr(0x00, 0x0E), // black on yellow
-		BorderColor: types.MakeAttr(0x00, 0x0E),
+		Color:       theme.Get().NotificationWarn,
+		BorderColor: theme.Get().NotificationWarn,
 		birth:       time.Now(),
 	}
 	n.SetSelf(n)

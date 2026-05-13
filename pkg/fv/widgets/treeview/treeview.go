@@ -7,7 +7,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -59,9 +59,9 @@ func New(bounds geom.Rect, roots []*Node) *TreeView {
 	t := &TreeView{
 		Base:        views.NewBase(bounds),
 		Roots:       roots,
-		Color:       types.MakeAttr(0x00, 0x07),
-		FocusColor:  types.MakeAttr(0x0F, 0x06),
-		BranchColor: types.MakeAttr(0x08, 0x07),
+		Color:       theme.Get().BreadcrumbNormal,
+		FocusColor:  theme.Get().InputArrow,
+		BranchColor: theme.Get().BreadcrumbSeparator,
 	}
 	t.SetSelf(t)
 	t.Options |= consts.OfSelectable | consts.OfFirstClick

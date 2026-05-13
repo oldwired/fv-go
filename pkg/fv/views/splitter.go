@@ -5,7 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 )
 
 // SplitOrientation picks the axis the splitter sits on.
@@ -57,8 +57,9 @@ func (s *Splitter) GetTypeID() string { return "splitter" }
 
 // Draw paints the splitter bar with a small handle in the middle.
 func (s *Splitter) Draw() {
-	color := types.MakeAttr(0x00, 0x07)
-	handle := types.MakeAttr(0x0F, 0x07)
+	pal := theme.Get()
+	color := pal.SplitterBar
+	handle := pal.SplitterHandle
 	if s.Orientation == SplitVertical {
 		mid := s.Size.Y / 2
 		for y := 0; y < s.Size.Y; y++ {
@@ -198,6 +199,50 @@ func (g *SplitGroup) SetPanels(p1, p2 View) {
 // ChangeBounds re-lays out children when the container resizes.
 func (g *SplitGroup) ChangeBounds(r geom.Rect) {
 	g.Group.ChangeBounds(r)
+	g.recalc()
+}
+
+// GetRatio returns SplitPos as a fraction of the group's size on the
+// split axis. Useful for persisting layouts across resizes — restore
+// with SetRatio.
+func (g *SplitGroup) GetRatio() float64 {
+	total := g.Size.X
+	if g.Orientation == SplitHorizontal {
+		total = g.Size.Y
+	}
+	if total <= 0 {
+		return 0
+	}
+	return float64(g.SplitPos) / float64(total)
+}
+
+// SetRatio places the splitter at r * total (clamped to [0,1]) and
+// re-lays out. Drives fvmux's keyboard resize mode (Ctrl-G R H/J/K/L)
+// without simulating mouse drags.
+func (g *SplitGroup) SetRatio(r float64) {
+	if r < 0 {
+		r = 0
+	}
+	if r > 1 {
+		r = 1
+	}
+	total := g.Size.X
+	if g.Orientation == SplitHorizontal {
+		total = g.Size.Y
+	}
+	g.SplitPos = int(r * float64(total))
+	g.recalc()
+	MarkDirty()
+}
+
+// SetMinPanel updates the per-panel minimum sizes on the Splitter and
+// re-lays out so the new constraints take effect immediately.
+func (g *SplitGroup) SetMinPanel(min1, min2 int) {
+	if g.Splitter == nil {
+		return
+	}
+	g.Splitter.MinPanel1 = min1
+	g.Splitter.MinPanel2 = min2
 	g.recalc()
 }
 

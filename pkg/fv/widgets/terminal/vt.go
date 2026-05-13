@@ -13,6 +13,8 @@
 package terminal
 
 import (
+	"net/url"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/oldwired/fv-go/pkg/fv/types"
@@ -87,6 +89,12 @@ type buffer struct {
 	mouseBtnEv bool // ?1002: button + motion-while-held
 	mouseAnyEv bool // ?1003: button + any motion
 	mouseSGR   bool // ?1006: SGR-1006 coordinate encoding
+
+	// bracketedPaste is DEC ?2004 — when set, hosts that paste should
+	// wrap clipboard payload in \x1b[200~ … \x1b[201~ so the inner
+	// shell can treat the bytes as one chunk instead of executing
+	// each line as it arrives.
+	bracketedPaste bool
 }
 
 // newBuffer constructs a fresh w×h buffer with default attributes.
@@ -686,6 +694,16 @@ type parser struct {
 	// OnTitle fires when an OSC 0/1/2 sequence completes; used by the
 	// view to surface the running program's title.
 	OnTitle func(string)
+
+	// OnCWD fires when an OSC 7 sequence completes; the argument is
+	// the parsed path (host portion of file://host/path is stripped,
+	// percent-decoded).
+	OnCWD func(string)
+
+	// OnBell fires when the parser sees BEL (0x07) in the ground
+	// state. OSC string-terminator BELs (inside feedOSC) do NOT fire
+	// this — those are protocol bytes, not a control bell.
+	OnBell func()
 }
 
 func newParser(b *buffer) *parser {
@@ -718,7 +736,10 @@ func (p *parser) feedGround(c byte) {
 	case c == 0x1B:
 		p.state = sEscape
 		p.utfLen = 0
-	case c == 0x07: // BEL — ignored
+	case c == 0x07: // BEL
+		if p.OnBell != nil {
+			p.OnBell()
+		}
 	case c == 0x08: // BS
 		if p.buf.cursorC > 0 {
 			p.buf.cursorC--
@@ -992,6 +1013,8 @@ func (p *parser) applyDECMode(m int, set bool) {
 		p.buf.mouseAnyEv = set
 	case 1006: // SGR-1006 extended coordinate encoding
 		p.buf.mouseSGR = set
+	case 2004: // bracketed paste mode
+		p.buf.bracketedPaste = set
 	case 47, 1047, 1049: // alt screen
 		if set && !p.buf.altActive {
 			p.buf.altActive = true
@@ -1055,6 +1078,25 @@ func (p *parser) completeOSC() {
 	case "0", "1", "2":
 		if p.OnTitle != nil {
 			p.OnTitle(pt)
+		}
+	case "7":
+		// OSC 7 — shell working directory. Format is file://host/path.
+		// We don't care about the host portion (might be empty or a
+		// fqdn from `hostname`); strip the scheme and take the path.
+		cwd := pt
+		if strings.HasPrefix(cwd, "file://") {
+			cwd = cwd[len("file://"):]
+			if i := strings.IndexByte(cwd, '/'); i >= 0 {
+				cwd = cwd[i:]
+			} else {
+				cwd = "/"
+			}
+		}
+		if decoded, err := url.PathUnescape(cwd); err == nil {
+			cwd = decoded
+		}
+		if p.OnCWD != nil {
+			p.OnCWD(cwd)
 		}
 	}
 }

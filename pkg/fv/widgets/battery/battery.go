@@ -9,6 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -47,11 +48,11 @@ func New(bounds geom.Rect, sampler Sampler, interval time.Duration) *BatteryView
 		Base:       views.NewBase(bounds),
 		Sample:     sampler,
 		Interval:   interval,
-		GoodColor:  types.MakeAttr(0x0A, 0x00),
-		WarnColor:  types.MakeAttr(0x0E, 0x00),
-		CritColor:  types.MakeAttr(0x0C, 0x00),
-		BackColor:  types.MakeAttr(0x08, 0x00),
-		LabelColor: types.MakeAttr(0x0F, 0x00),
+		GoodColor:  theme.Get().GaugeGood,
+		WarnColor:  theme.Get().GaugeWarn,
+		CritColor:  theme.Get().GaugeCrit,
+		BackColor:  theme.Get().GaugeBack,
+		LabelColor: theme.Get().GaugeLabel,
 	}
 	b.SetSelf(b)
 	if sampler != nil {

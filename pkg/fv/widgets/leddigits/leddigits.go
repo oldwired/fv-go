@@ -5,6 +5,7 @@ package leddigits
 import (
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -39,7 +40,7 @@ func New(bounds geom.Rect, digitCount int) *LEDDigits {
 	l := &LEDDigits{
 		Base:       views.NewBase(bounds),
 		DigitCount: digitCount,
-		Color:      types.MakeAttr(0x0C, 0x00), // bright red on black
+		Color:      theme.Get().LedDigit,
 	}
 	l.SetSelf(l)
 	return l

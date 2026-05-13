@@ -19,6 +19,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/editor"
@@ -50,7 +51,7 @@ func New(bounds geom.Rect, ed *editor.Editor, providers ...Provider) *EditorGutt
 		Base:      views.NewBase(bounds),
 		Editor:    ed,
 		Providers: providers,
-		Color:     types.MakeAttr(0x07, 0x00),
+		Color:     theme.Get().StatNeutral,
 	}
 	g.SetSelf(g)
 	g.GrowMode = consts.GfGrowLoX | consts.GfGrowHiY // sticks to left edge, stretches vertically
@@ -118,7 +119,7 @@ func NewLineNumbers(width int) *LineNumbers {
 	if width < 2 {
 		width = 4
 	}
-	return &LineNumbers{Width_: width, Attr: types.MakeAttr(0x08, 0x00)}
+	return &LineNumbers{Width_: width, Attr: theme.Get().EditorLineNo}
 }
 
 func (l *LineNumbers) Width() int { return l.Width_ + 1 } // include trailing space
@@ -134,7 +135,7 @@ type Bookmarks struct {
 }
 
 func NewBookmarks() *Bookmarks {
-	return &Bookmarks{Lines: map[int]bool{}, Attr: types.MakeAttr(0x0E, 0x00)}
+	return &Bookmarks{Lines: map[int]bool{}, Attr: theme.Get().EditorBookmark}
 }
 
 func (b *Bookmarks) Toggle(line int) {
@@ -161,7 +162,7 @@ type Breakpoints struct {
 }
 
 func NewBreakpoints() *Breakpoints {
-	return &Breakpoints{Lines: map[int]bool{}, Attr: types.MakeAttr(0x0C, 0x00)}
+	return &Breakpoints{Lines: map[int]bool{}, Attr: theme.Get().EditorBreakpoint}
 }
 
 func (b *Breakpoints) Toggle(line int) {
@@ -194,8 +195,8 @@ func NewDiff() *Diff {
 	return &Diff{
 		Inserted: map[int]bool{},
 		Removed:  map[int]bool{},
-		AddAttr:  types.MakeAttr(0x0A, 0x00),
-		DelAttr:  types.MakeAttr(0x0C, 0x00),
+		AddAttr:  theme.Get().GaugeGood,
+		DelAttr:  theme.Get().GaugeCrit,
 	}
 }
 
@@ -208,5 +209,5 @@ func (d *Diff) CellAt(lineNum int) (string, uint16) {
 	if d.Removed[lineNum] {
 		return "- ", d.DelAttr
 	}
-	return "  ", types.MakeAttr(0x07, 0x00)
+	return "  ", theme.Get().StatNeutral
 }

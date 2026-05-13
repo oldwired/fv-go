@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -46,8 +46,8 @@ func New(bounds geom.Rect, sampler Sampler, interval time.Duration) *ProcessView
 		Base:        views.NewBase(bounds),
 		Sample:      sampler,
 		Interval:    interval,
-		HeaderColor: types.MakeAttr(0x0F, 0x04),
-		RowColor:    types.MakeAttr(0x07, 0x01),
+		HeaderColor: theme.Get().NotificationError,
+		RowColor:    theme.Get().TreeNormal,
 	}
 	p.SetSelf(p)
 	if sampler != nil {

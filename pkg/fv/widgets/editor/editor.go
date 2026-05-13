@@ -26,6 +26,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
@@ -339,8 +340,9 @@ func (e *Editor) refreshScroll() {
 // Draw paints visible lines with selection highlighting and (if
 // Colorer is set) per-line syntax coloring.
 func (e *Editor) Draw() {
-	normal := types.MakeAttr(0x07, 0x01)
-	selColor := types.MakeAttr(0x0F, 0x06)
+	pal := theme.Get()
+	normal := pal.EditorText
+	selColor := pal.InputArrow
 
 	selLo, selHi := -1, -1
 	if e.HasSelection() {

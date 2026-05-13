@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -49,9 +49,9 @@ func New(bounds geom.Rect, sampler Sampler, interval time.Duration) *NetworkView
 		Base:       views.NewBase(bounds),
 		Sample:     sampler,
 		Interval:   interval,
-		InColor:    types.MakeAttr(0x0A, 0x00),
-		OutColor:   types.MakeAttr(0x0B, 0x00),
-		LabelColor: types.MakeAttr(0x0F, 0x00),
+		InColor:    theme.Get().ChartBar1,
+		OutColor:   theme.Get().ChartBar2,
+		LabelColor: theme.Get().GaugeLabel,
 	}
 	n.SetSelf(n)
 	if sampler != nil {

@@ -7,7 +7,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -35,8 +35,8 @@ type Accordion struct {
 // New constructs an empty Accordion.
 func New(bounds geom.Rect) *Accordion {
 	a := &Accordion{
-		HeaderColor: types.MakeAttr(0x0F, 0x01),
-		OpenColor:   types.MakeAttr(0x0E, 0x02),
+		HeaderColor: theme.Get().AccordionHeader,
+		OpenColor:   theme.Get().AccordionExpand,
 	}
 	views.InitGroup(&a.Group, bounds)
 	a.SetSelf(a)

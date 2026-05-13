@@ -8,7 +8,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -48,9 +48,10 @@ func (t *ToolBar) GetTypeID() string { return "toolbar" }
 
 // Draw paints the bar.
 func (t *ToolBar) Draw() {
-	normal := types.MakeAttr(0x00, 0x07)
-	hot := types.MakeAttr(0x04, 0x07)
-	sep := types.MakeAttr(0x08, 0x07)
+	pal := theme.Get()
+	normal := pal.ToolbarNormal
+	hot := pal.PopupMenuHot
+	sep := pal.BreadcrumbSeparator
 
 	w := t.Size.X
 	buf := screen.MakeDrawBuffer(w)

@@ -15,6 +15,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -264,13 +265,14 @@ func (h *HexEditor) Draw() {
 	if h.Source == nil {
 		return
 	}
-	addrColor := types.MakeAttr(0x07, 0x01)
-	hexColor := types.MakeAttr(0x0E, 0x01)
-	hexFocus := types.MakeAttr(0x0B, 0x01)
-	cursorColor := types.MakeAttr(0x0F, 0x04)
-	asciiColor := types.MakeAttr(0x0E, 0x01)
-	asciiCursor := types.MakeAttr(0x0F, 0x05)
-	modColor := types.MakeAttr(0x0E, 0x04)
+	pal := theme.Get()
+	addrColor := pal.HexAddr
+	hexColor := pal.HexByte
+	hexFocus := pal.HexFocused
+	cursorColor := pal.NotificationError
+	asciiColor := pal.HexByte
+	asciiCursor := pal.GridPinned
+	modColor := pal.NotificationError
 
 	totalSize := h.Source.Size()
 	curRow := h.Position / BytesPerRow
@@ -289,7 +291,7 @@ func (h *HexEditor) Draw() {
 		addr := fmt.Sprintf("%08X", row*BytesPerRow)
 		ac := addrColor
 		if row == curRow {
-			ac = types.MakeAttr(0x0F, 0x01)
+			ac = pal.StatHeader
 		}
 		for i, c := range addr {
 			buf[i] = types.DrawCell{Ch: string(c), Attr: ac}

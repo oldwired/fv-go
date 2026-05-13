@@ -22,7 +22,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -80,17 +80,18 @@ func (m *MarkdownView) refreshScroll() {
 // constructs (headings, bullets, code blocks, hr) are recognized
 // here; inline emphasis and code are applied per-line.
 func parse(md string) []renderedLine {
-	headingAttr := types.MakeAttr(0x0E, 0x01)
-	textAttr := types.MakeAttr(0x07, 0x01)
-	bulletAttr := types.MakeAttr(0x0B, 0x01)
-	quoteAttr := types.MakeAttr(0x06, 0x01)
-	codeAttr := types.MakeAttr(0x0A, 0x01)
-	ruleAttr := types.MakeAttr(0x08, 0x01)
-	emphAttr := types.MakeAttr(0x0F, 0x01)
-	linkAttr := types.MakeAttr(0x09, 0x01)
-	tableHeaderAttr := types.MakeAttr(0x0F, 0x05)
-	tableBodyAttr := types.MakeAttr(0x0F, 0x01)
-	tableFrameAttr := types.MakeAttr(0x08, 0x01)
+	pal := theme.Get()
+	headingAttr := pal.MarkdownHeading
+	textAttr := pal.EditorText
+	bulletAttr := pal.MarkdownCode
+	quoteAttr := pal.HelpQuote
+	codeAttr := pal.EditorString
+	ruleAttr := pal.EditorComment
+	emphAttr := pal.MarkdownEmph
+	linkAttr := pal.MarkdownLink
+	tableHeaderAttr := pal.GridPinned
+	tableBodyAttr := pal.GridCell
+	tableFrameAttr := pal.EditorComment
 
 	var out []renderedLine
 	inFence := false
@@ -466,7 +467,7 @@ func applyInline(s string, start, end int, textAttr, emphAttr, codeAttr, linkAtt
 func (m *MarkdownView) Draw() {
 	for r := 0; r < m.Size.Y; r++ {
 		buf := screen.MakeDrawBuffer(m.Size.X)
-		bg := types.MakeAttr(0x07, 0x01)
+		bg := theme.Get().EditorText
 		for x := 0; x < m.Size.X; x++ {
 			screen.DrawCell(buf, x, " ", bg)
 		}

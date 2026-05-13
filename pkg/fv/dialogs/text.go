@@ -5,7 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -28,7 +28,7 @@ func (s *StaticText) GetTypeID() string { return "statictext" }
 
 // Draw paints the text wrapped to bounds.
 func (s *StaticText) Draw() {
-	color := types.MakeAttr(0x00, 0x03) // black on dialog cyan
+	color := theme.Get().LabelNormal
 	y := 0
 	start := 0
 	for i := 0; i <= len(s.Text); i++ {
@@ -77,12 +77,12 @@ func (l *Label) GetTypeID() string { return "label" }
 // Draw renders the label using CStr semantics so '~' marks the hotkey
 // letter for highlighting.
 func (l *Label) Draw() {
-	normal := types.MakeAttr(0x00, 0x03) // black on cyan to match dialog
-	hot := types.MakeAttr(0x0F, 0x03)    // bright white hotkey
+	pal := theme.Get()
+	normal := pal.LabelNormal
+	hot := pal.LabelHot
 	if l.Link != nil && l.Link.BaseView().GetState(consts.SfFocused) {
-		// Subtle "this label's target is focused" cue.
-		normal = types.MakeAttr(0x0F, 0x03)
-		hot = types.MakeAttr(0x0E, 0x03)
+		normal = pal.LabelFocused
+		hot = pal.LabelFocusedHot
 	}
 	buf := screen.MakeDrawBuffer(l.Size.X)
 	for x := 0; x < l.Size.X; x++ {

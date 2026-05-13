@@ -12,7 +12,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -37,11 +37,11 @@ func New(bounds geom.Rect) *Calendar {
 		Base:        views.NewBase(bounds),
 		Selected:    time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local),
 		View:        time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local),
-		HeaderColor: types.MakeAttr(0x0F, 0x01),
-		WeekColor:   types.MakeAttr(0x0E, 0x01),
-		DayColor:    types.MakeAttr(0x07, 0x01),
-		FocusColor:  types.MakeAttr(0x0F, 0x06),
-		OtherMonth:  types.MakeAttr(0x08, 0x01),
+		HeaderColor: theme.Get().CalendarFocused,
+		WeekColor:   theme.Get().CalendarWeekend,
+		DayColor:    theme.Get().TreeNormal,
+		FocusColor:  theme.Get().CalendarToday,
+		OtherMonth:  theme.Get().CalendarDimmed,
 	}
 	c.SetSelf(c)
 	c.Options |= consts.OfSelectable | consts.OfFirstClick

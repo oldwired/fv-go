@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 )
 
 // Span describes one colored region in a line.
@@ -166,12 +166,13 @@ func isWordChar(c byte) bool {
 
 // GoSyntax returns a Highlighter for Go source.
 func GoSyntax() *Highlighter {
-	keywordAttr := types.MakeAttr(0x0E, 0x01)
-	stringAttr := types.MakeAttr(0x0A, 0x01)
-	commentAttr := types.MakeAttr(0x08, 0x01)
-	numberAttr := types.MakeAttr(0x0B, 0x01)
+	pal := theme.Get()
+	keywordAttr := pal.EditorKeyword
+	stringAttr := pal.EditorString
+	commentAttr := pal.EditorComment
+	numberAttr := pal.EditorNumber
 	return &Highlighter{
-		DefaultAttr: types.MakeAttr(0x07, 0x01),
+		DefaultAttr: pal.EditorText,
 		Rules: []Rule{
 			{Range: &RangeRule{StartMarker: "//"}, Attr: commentAttr},
 			{Range: &RangeRule{StartMarker: "/*", EndMarker: "*/"}, Attr: commentAttr},
@@ -191,12 +192,13 @@ func GoSyntax() *Highlighter {
 
 // MarkdownSyntax returns a Highlighter for Markdown.
 func MarkdownSyntax() *Highlighter {
-	headingAttr := types.MakeAttr(0x0E, 0x01)
-	emphAttr := types.MakeAttr(0x0F, 0x01)
-	codeAttr := types.MakeAttr(0x0B, 0x01)
-	linkAttr := types.MakeAttr(0x09, 0x01)
+	pal := theme.Get()
+	headingAttr := pal.MarkdownHeading
+	emphAttr := pal.MarkdownEmph
+	codeAttr := pal.MarkdownCode
+	linkAttr := pal.MarkdownLink
 	return &Highlighter{
-		DefaultAttr: types.MakeAttr(0x07, 0x01),
+		DefaultAttr: pal.EditorText,
 		Rules: []Rule{
 			{Pattern: regexp.MustCompile(`^#{1,6} .*$`), Attr: headingAttr},
 			{Range: &RangeRule{StartMarker: "**", EndMarker: "**"}, Attr: emphAttr},

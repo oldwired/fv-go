@@ -7,6 +7,7 @@ import (
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -67,9 +68,10 @@ func (p *ProgressBar) Reset() { p.Position = p.Min }
 
 // Draw paints the bar.
 func (p *ProgressBar) Draw() {
-	emptyColor := types.MakeAttr(0x07, 0x01)  // light gray on blue
-	filledColor := types.MakeAttr(0x0E, 0x02) // bright yellow on green
-	textColor := types.MakeAttr(0x0F, 0x00)   // bright white on black overlay
+	pal := theme.Get()
+	emptyColor := pal.ProgressEmpty
+	filledColor := pal.ProgressFilled
+	textColor := pal.ProgressText
 
 	span := p.Max - p.Min
 	percent := 0

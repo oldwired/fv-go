@@ -8,7 +8,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -90,15 +90,16 @@ func (t *ToggleSwitch) switchVisual() string {
 
 // Draw paints body + label.
 func (t *ToggleSwitch) Draw() {
-	body := types.MakeAttr(0x07, 0x03)  // gray on cyan
-	label := types.MakeAttr(0x00, 0x03) // black on cyan
-	hot := types.MakeAttr(0x0F, 0x03)   // bright white hotkey
-	on := types.MakeAttr(0x0E, 0x03)    // yellow when ON
+	pal := theme.Get()
+	body := pal.WindowBackground
+	label := pal.LabelNormal
+	hot := pal.LabelHot
+	on := pal.ToggleOn
 	if t.GetState(consts.SfFocused) {
-		body = types.MakeAttr(0x0F, 0x06)
-		label = types.MakeAttr(0x0F, 0x06)
-		hot = types.MakeAttr(0x0E, 0x06)
-		on = types.MakeAttr(0x0F, 0x06)
+		body = pal.InputSelected
+		label = pal.InputSelected
+		hot = pal.InputArrow
+		on = pal.InputSelected
 	}
 
 	buf := screen.MakeDrawBuffer(t.Size.X)

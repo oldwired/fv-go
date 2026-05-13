@@ -5,6 +5,7 @@ package sparkline
 import (
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -32,7 +33,7 @@ func New(bounds geom.Rect, maxPoints int) *Sparkline {
 		Min:       0,
 		Max:       1,
 		AutoScale: true,
-		Color:     types.MakeAttr(0x0B, 0x01), // bright cyan on blue
+		Color:     theme.Get().ChartBar2,
 	}
 	s.SetSelf(s)
 	return s

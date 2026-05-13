@@ -5,6 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 )
 
@@ -52,12 +53,14 @@ func (f *Frame) Draw() {
 	}
 
 	// Classic TV dialog frame palette: light-gray-on-cyan passive,
-	// bright-white-on-cyan active.
-	color := types.MakeAttr(0x07, 0x03)
+	// bright-white-on-cyan active. Sourced from the theme so a host
+	// can swap palettes at runtime.
+	pal := theme.Get()
+	color := pal.FrameNormal
 	if active == 1 {
-		color = types.MakeAttr(0x0F, 0x03)
+		color = pal.FrameActive
 	}
-	iconColor := types.MakeAttr(0x0E, 0x03)
+	iconColor := pal.FrameIcons
 
 	// --- Top row ---
 	top := screen.MakeDrawBuffer(w)
@@ -149,6 +152,17 @@ type Window struct {
 	zoomRect geom.Rect
 
 	Frame *Frame
+
+	// OnMove fires after a title-bar drag completes, with the window's
+	// final origin. Used by hosts (e.g., fvmux) to persist window
+	// positions to disk. Fired on mouse-up only, not per cell of the
+	// drag — streaming would write the session file thousands of
+	// times during a single drag.
+	OnMove func(geom.Point)
+
+	// OnResize fires after a resize-handle drag completes, with the
+	// window's final size. Same on-completion semantics as OnMove.
+	OnResize func(geom.Point)
 }
 
 // NewWindow constructs a Window with the given bounds, title, and number.
@@ -190,7 +204,7 @@ func (w *Window) GetTypeID() string { return "window" }
 // content widgets follow), then the shadow if SfShadow is set.
 func (w *Window) Draw() {
 	// Interior fill: light-gray-on-cyan, the classic TV dialog body.
-	bg := types.MakeAttr(0x07, 0x03)
+	bg := theme.Get().WindowBackground
 	for y := 0; y < w.Size.Y; y++ {
 		buf := screen.MakeDrawBuffer(w.Size.X)
 		for x := 0; x < w.Size.X; x++ {
@@ -246,7 +260,7 @@ func castShadow(c types.DrawCell) types.DrawCell {
 	}
 	return types.DrawCell{
 		Ch:   c.Ch,
-		Attr: types.MakeAttr(0x08, 0x00),
+		Attr: theme.Get().WindowShadow,
 	}
 }
 
@@ -266,6 +280,14 @@ func (w *Window) Flags() byte { return w.flags }
 
 // Number returns the window number (0 means none).
 func (w *Window) Number() int { return w.number }
+
+// SetNumber updates the title-bar number badge. Used by hosts that
+// renumber windows after one closes (so the user's Alt-1..9 chord
+// always maps to a stable position in the list).
+func (w *Window) SetNumber(n int) {
+	w.number = n
+	MarkDirty()
+}
 
 // HandleEvent extends Group with title-bar drag, close-box and zoom-box
 // click handling, click-to-raise for non-modal windows, and the window
@@ -370,7 +392,12 @@ func (w *Window) resizeLoop(start *drivers.Event) {
 	startMouse := start.Where
 
 	w.State |= consts.SfDragging
-	defer func() { w.State &^= consts.SfDragging }()
+	defer func() {
+		w.State &^= consts.SfDragging
+		if w.OnResize != nil {
+			w.OnResize(w.Size)
+		}
+	}()
 	for {
 		if pumpFn != nil {
 			pumpFn()
@@ -415,7 +442,12 @@ func (w *Window) dragLoop(start *drivers.Event) {
 	}
 	prev := start.Where
 	w.State |= consts.SfDragging
-	defer func() { w.State &^= consts.SfDragging }()
+	defer func() {
+		w.State &^= consts.SfDragging
+		if w.OnMove != nil {
+			w.OnMove(w.Origin)
+		}
+	}()
 	for {
 		if pumpFn != nil {
 			pumpFn()
@@ -504,7 +536,7 @@ func (b *Background) GetTypeID() string { return "background" }
 
 // Draw fills the area with Char.
 func (b *Background) Draw() {
-	color := types.MakeAttr(0x07, 0x01) // legacy desktop blue
+	color := theme.Get().DesktopBackground
 	for y := 0; y < b.Size.Y; y++ {
 		buf := screen.MakeDrawBuffer(b.Size.X)
 		for x := 0; x < b.Size.X; x++ {

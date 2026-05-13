@@ -18,7 +18,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/dialogs"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -86,9 +86,10 @@ func newHelpView(bounds geom.Rect, body string) *helpView {
 func (v *helpView) GetTypeID() string { return "helpview" }
 
 func (v *helpView) Draw() {
-	bg := types.MakeAttr(0x00, 0x07)
-	headingAttr := types.MakeAttr(0x04, 0x07)
-	bulletAttr := types.MakeAttr(0x01, 0x07)
+	pal := theme.Get()
+	bg := pal.HelpBackground
+	headingAttr := pal.HelpHeading
+	bulletAttr := pal.HelpBullet
 	for r := 0; r < v.Size.Y; r++ {
 		buf := screen.MakeDrawBuffer(v.Size.X)
 		for x := 0; x < v.Size.X; x++ {

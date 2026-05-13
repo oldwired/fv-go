@@ -5,7 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -21,10 +21,17 @@ type StatusItem struct {
 // StatusDef is one bracketed range (min..max help context) and the
 // items shown when GetHelpCtx is in that range. The Pascal API exposes
 // arbitrary nested defs; here we keep one default def for simplicity.
+//
+// Items / LeftItems render at the left edge growing right; RightItems
+// renders right-justified at the right edge. Items is the legacy slot
+// kept for backward compatibility; new callers should prefer
+// LeftItems + RightItems. A blank middle gap separates the two sides.
 type StatusDef struct {
-	Min, Max uint16
-	Items    []*StatusItem
-	Next     *StatusDef
+	Min, Max   uint16
+	Items      []*StatusItem
+	LeftItems  []*StatusItem
+	RightItems []*StatusItem
+	Next       *StatusDef
 }
 
 // StatusLine is the bottom-row hint bar.
@@ -49,44 +56,79 @@ func NewStatusLine(bounds geom.Rect, items []*StatusItem) *StatusLine {
 // GetTypeID for serial registry.
 func (s *StatusLine) GetTypeID() string { return "statusline" }
 
-// Draw paints the items in their declared order. Each item's Text
-// is rendered as a CStr (so '~Alt-X~ Exit' becomes "Alt-X Exit" with
-// "Alt-X" highlighted as the hotkey).
+// Draw paints the items: legacy Items + LeftItems left-aligned at
+// x=1, RightItems right-justified, a blank middle gap. Each item's
+// Text is rendered as a CStr (so '~Alt-X~ Exit' becomes "Alt-X Exit"
+// with "Alt-X" highlighted as the hotkey).
 func (s *StatusLine) Draw() {
-	normal := types.MakeAttr(0x00, 0x07) // black on light gray
-	hot := types.MakeAttr(0x04, 0x07)    // CGA red on light gray
+	pal := theme.Get()
+	normal := pal.StatusBarNormal
+	hot := pal.StatusBarHot
 	buf := screen.MakeDrawBuffer(s.Size.X)
 	for x := 0; x < s.Size.X; x++ {
 		screen.DrawCell(buf, x, " ", normal)
 	}
-	x := 1
 	if s.Defs == nil {
 		s.WriteLine(0, 0, s.Size.X, 1, buf)
 		return
 	}
-	for _, it := range s.Defs.Items {
-		if x >= s.Size.X {
-			break
+	// Left-aligned slot. Items is the legacy field, LeftItems is the
+	// modern one; render Items first so old code keeps working, then
+	// LeftItems flowing after.
+	x := 1
+	drawSlot := func(items []*StatusItem) {
+		for _, it := range items {
+			if x >= s.Size.X {
+				break
+			}
+			text := it.Text + "  "
+			screen.DrawCStr(buf, x, text, normal, hot)
+			x += utf8.CStrDisplayWidth(text)
 		}
-		text := it.Text + "  "
-		screen.DrawCStr(buf, x, text, normal, hot)
-		x += utf8.CStrDisplayWidth(text)
+	}
+	drawSlot(s.Defs.Items)
+	drawSlot(s.Defs.LeftItems)
+	// Right-aligned slot. Measure the total width of every right
+	// item, then draw starting at Size.X - total. Right items render
+	// in declared order (so the first RightItem is leftmost of the
+	// right group).
+	if len(s.Defs.RightItems) > 0 {
+		rightW := 0
+		for _, it := range s.Defs.RightItems {
+			rightW += utf8.CStrDisplayWidth(it.Text + "  ")
+		}
+		rx := s.Size.X - rightW
+		if rx < x+1 {
+			// No room for both sides — clip right onto whatever
+			// follows left. Better than overlapping.
+			rx = x + 1
+		}
+		for _, it := range s.Defs.RightItems {
+			if rx >= s.Size.X {
+				break
+			}
+			text := it.Text + "  "
+			screen.DrawCStr(buf, rx, text, normal, hot)
+			rx += utf8.CStrDisplayWidth(text)
+		}
 	}
 	s.WriteLine(0, 0, s.Size.X, 1, buf)
 }
 
-// HandleEvent reacts to keyboard shortcuts that match items in the
-// active def.
+// HandleEvent reacts to keyboard shortcuts that match items in any
+// slot of the active def.
 func (s *StatusLine) HandleEvent(ev *drivers.Event) {
 	if ev.What != consts.EvKeyDown || s.Defs == nil {
 		return
 	}
-	for _, it := range s.Defs.Items {
-		if it.KeyCode == ev.KeyCode {
-			notify := drivers.Event{What: consts.EvCommand, Command: it.Command}
-			s.PutEvent(&notify)
-			s.ClearEvent(ev)
-			return
+	for _, slot := range [][]*StatusItem{s.Defs.Items, s.Defs.LeftItems, s.Defs.RightItems} {
+		for _, it := range slot {
+			if it.KeyCode == ev.KeyCode {
+				notify := drivers.Event{What: consts.EvCommand, Command: it.Command}
+				s.PutEvent(&notify)
+				s.ClearEvent(ev)
+				return
+			}
 		}
 	}
 }

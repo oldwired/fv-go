@@ -9,7 +9,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
 
@@ -39,7 +39,7 @@ func New(host *views.Group) *Tooltip {
 		Base:  views.NewBase(geom.Rect{}),
 		Host:  host,
 		Delay: 700 * time.Millisecond,
-		Color: types.MakeAttr(0x00, 0x0E), // black on yellow
+		Color: theme.Get().TooltipNormal,
 	}
 	t.SetSelf(t)
 	t.State &^= 0

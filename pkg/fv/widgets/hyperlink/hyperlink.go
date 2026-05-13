@@ -12,6 +12,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -34,7 +35,7 @@ func New(bounds geom.Rect, text, url string) *Hyperlink {
 		Base: views.NewBase(bounds),
 		Text: text,
 		URL:  url,
-		Attr: types.MakeAttr(0x0B, 0x00), // bright cyan on default bg
+		Attr: theme.Get().HyperlinkNormal,
 	}
 	h.SetSelf(h)
 	return h

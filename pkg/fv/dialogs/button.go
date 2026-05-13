@@ -7,6 +7,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
@@ -57,22 +58,22 @@ func (b *Button) GetTypeID() string { return "button" }
 // buttons reverse-video the background, pressed buttons flash, and
 // every button casts a one-cell shadow.
 func (b *Button) Draw() {
+	pal := theme.Get()
 	// TV cButton palette: black-on-green normal, bright-white when
 	// focused or default, white-on-blue while pressed.
-	normal := types.MakeAttr(0x00, 0x02) // black on green
-	hot := types.MakeAttr(0x0E, 0x02)    // yellow hot
+	normal := pal.ButtonNormal
+	hot := pal.ButtonNormalHot
 	if b.AmDefault || b.GetState(consts.SfDefault) {
-		normal = types.MakeAttr(0x0F, 0x02)
-		hot = types.MakeAttr(0x0E, 0x02)
+		normal = pal.ButtonDefault
+		hot = pal.ButtonDefaultHot
 	}
 	if b.GetState(consts.SfFocused) {
-		// Brighter green for the focused button.
-		normal = types.MakeAttr(0x0F, 0x0A) // bright white on light green
-		hot = types.MakeAttr(0x0E, 0x0A)
+		normal = pal.ButtonFocused
+		hot = pal.ButtonFocusedHot
 	}
 	if b.pressed {
-		normal = types.MakeAttr(0x0F, 0x01)
-		hot = types.MakeAttr(0x0E, 0x01)
+		normal = pal.ButtonPressed
+		hot = pal.ButtonPressedHot
 	}
 	w := b.Size.X
 	buf := screen.MakeDrawBuffer(w)
@@ -97,7 +98,7 @@ func (b *Button) Draw() {
 	// The cell uses FG=dark-gray and BG=dialog-cyan so the upper half
 	// renders as shadow and the lower half blends into the dialog.
 	if !b.pressed {
-		shadow := types.MakeAttr(0x08, 0x03) // dark gray on cyan
+		shadow := pal.ButtonShadow
 		halfRow := make(screen.DrawBuffer, w)
 		for i := range halfRow {
 			halfRow[i] = types.DrawCell{Ch: "▀", Attr: shadow}

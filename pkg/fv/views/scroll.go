@@ -5,7 +5,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 )
 
 // ScrollBar is a one-cell-wide vertical or horizontal scroll bar.
@@ -72,11 +72,10 @@ func (s *ScrollBar) SetValue(v int) {
 func (s *ScrollBar) Draw() {
 	// Track ▒ is light-gray on cyan (close to TV's classic scrollbar
 	// palette); the thumb stands out as bright white on the same bg.
-	// (The earlier MakeAttr(0x70, 0x70) was a literal copy of a Pascal
-	// packed-attribute byte and rendered as black-on-black after the
-	// low-nibble mask in legacyFGCode.)
-	color := types.MakeAttr(0x07, 0x03)
-	thumbColor := types.MakeAttr(0x0F, 0x03)
+	// Sourced from the theme so a host can recolor scroll chrome.
+	pal := theme.Get()
+	color := pal.ScrollBarPage
+	thumbColor := pal.ScrollBarThumb
 	if s.horizontal {
 		buf := screen.MakeDrawBuffer(s.Size.X)
 		screen.DrawChar(buf, 0, '◄', color, 1)
@@ -294,18 +293,19 @@ func (l *ListViewer) Draw() {
 	if l.VScroll != nil {
 		top = l.VScroll.Value
 	}
+	pal := theme.Get()
 	for r := 0; r < rows; r++ {
 		buf := screen.MakeDrawBuffer(cols)
 		idx := top + r
 		if idx < 0 || idx >= l.Range {
-			color := types.MakeAttr(0x07, 0x00)
+			color := pal.ListItemNormal
 			for x := 0; x < cols; x++ {
 				screen.DrawCell(buf, x, " ", color)
 			}
 		} else {
-			color := types.MakeAttr(0x07, 0x00)
+			color := pal.ListItemNormal
 			if idx == l.Focused {
-				color = types.MakeAttr(0x0F, 0x07)
+				color = pal.ListItemFocused
 			}
 			for x := 0; x < cols; x++ {
 				screen.DrawCell(buf, x, " ", color)

@@ -17,7 +17,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -160,14 +160,15 @@ func (l *LogViewer) visibleCount() int {
 
 // Draw paints visible entries.
 func (l *LogViewer) Draw() {
+	pal := theme.Get()
 	colors := map[Level]uint16{
-		LevelDebug: types.MakeAttr(0x08, 0x00),
-		LevelInfo:  types.MakeAttr(0x07, 0x00),
-		LevelWarn:  types.MakeAttr(0x0E, 0x00),
-		LevelError: types.MakeAttr(0x0C, 0x00),
+		LevelDebug: pal.EditorLineNo,
+		LevelInfo:  pal.LogText,
+		LevelWarn:  pal.LogWarn,
+		LevelError: pal.LogError,
 	}
-	timeColor := types.MakeAttr(0x06, 0x00)
-	srcColor := types.MakeAttr(0x09, 0x00)
+	timeColor := pal.LogTime
+	srcColor := pal.HyperlinkNormal
 
 	l.mu.Lock()
 	visible := l.visibleEntries()
@@ -176,7 +177,7 @@ func (l *LogViewer) Draw() {
 	for r := 0; r < l.Size.Y; r++ {
 		buf := screen.MakeDrawBuffer(l.Size.X)
 		for x := 0; x < l.Size.X; x++ {
-			screen.DrawCell(buf, x, " ", types.MakeAttr(0x07, 0x00))
+			screen.DrawCell(buf, x, " ", pal.LogText)
 		}
 		idx := l.Top + r
 		if idx >= 0 && idx < len(visible) {

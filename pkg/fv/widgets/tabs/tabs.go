@@ -8,7 +8,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
-	"github.com/oldwired/fv-go/pkg/fv/types"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -116,11 +116,14 @@ func labelWidth(title string) int {
 // Draw paints the tab strip, the separator, and delegates to Group
 // for the body content.
 func (t *Tabs) Draw() {
-	stripBG := types.MakeAttr(0x07, 0x01)     // gray on blue
-	inactive := types.MakeAttr(0x07, 0x01)    // gray on blue
-	inactiveHot := types.MakeAttr(0x0E, 0x01) // yellow hotkey
-	active := types.MakeAttr(0x00, 0x07)      // black on light gray
-	activeHot := types.MakeAttr(0x04, 0x07)   // red hotkey on gray
+	pal := theme.Get()
+	stripBG := pal.TabInactive
+	inactive := pal.TabInactive
+	inactiveHot := pal.TabInactiveHot
+	active := pal.TabActive
+	activeHot := pal.TabActiveHot
+	_ = pal.TabBar
+	_ = pal.TabSeparator
 	w := t.Size.X
 
 	// Row 0: tab strip.

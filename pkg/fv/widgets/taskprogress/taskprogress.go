@@ -10,6 +10,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/anim"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
 )
@@ -65,9 +66,9 @@ type TaskProgress struct {
 func New(bounds geom.Rect) *TaskProgress {
 	t := &TaskProgress{
 		Base:        views.NewBase(bounds),
-		HeaderColor: types.MakeAttr(0x0F, 0x01),
-		BarColor:    types.MakeAttr(0x0E, 0x02),
-		BackColor:   types.MakeAttr(0x08, 0x01),
+		HeaderColor: theme.Get().StatHeader,
+		BarColor:    theme.Get().ProgressFilled,
+		BackColor:   theme.Get().EditorComment,
 	}
 	t.SetSelf(t)
 	anim.Register(t, 100*time.Millisecond)

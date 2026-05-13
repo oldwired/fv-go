@@ -19,6 +19,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/screen"
+	"github.com/oldwired/fv-go/pkg/fv/theme"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/validators"
@@ -930,15 +931,16 @@ func (g *StringGrid) Draw() {
 	// red bar); rows alternate fg brightness for subtle zebra striping;
 	// column separators are dark-gray glyphs that visually anchor the
 	// grid without competing with the data.
-	headerColor := types.MakeAttr(0x0F, 0x01)
-	headerSepColor := types.MakeAttr(0x08, 0x01)
-	rowEven := types.MakeAttr(0x07, 0x01)
-	rowOdd := types.MakeAttr(0x0F, 0x01)
-	pinnedColor := types.MakeAttr(0x0F, 0x05) // pinned rows: bright on magenta
-	selColor := types.MakeAttr(0x00, 0x07)
-	focusColor := types.MakeAttr(0x0E, 0x06)
-	editColor := types.MakeAttr(0x0F, 0x02)
-	filterColor := types.MakeAttr(0x00, 0x07)
+	pal := theme.Get()
+	headerColor := pal.GridHeader
+	headerSepColor := pal.GridHeaderSep
+	rowEven := pal.GridCellAlt
+	rowOdd := pal.GridCell
+	pinnedColor := pal.GridPinned
+	selColor := pal.PopupMenuNormal
+	focusColor := pal.ComboButton
+	editColor := pal.GridCellCursor
+	filterColor := pal.GridFrame
 	dividerAttrFor := func(bg byte) uint16 {
 		return types.MakeAttr(0x08, bg)
 	}
@@ -1022,7 +1024,7 @@ func (g *StringGrid) Draw() {
 		g.drawCellsRowAt(buf, visRow, rowAttr, selColor, focusColor, editColor, dividerAttrFor(types.BG(rowAttr)))
 		if g.ShowRowMarker && visRow == g.Focus.Row {
 			bg := types.BG(buf[0].Attr)
-			buf[0] = types.DrawCell{Ch: "►", Attr: types.MakeAttr(0x0E, bg)}
+			buf[0] = types.DrawCell{Ch: "►", Attr: types.MakeAttr(0x0E, bg)} // intentionally synthesized: marker FG over per-row bg
 		}
 		g.WriteLine(0, rowOff+r, g.Size.X, 1, buf)
 	}
@@ -1030,11 +1032,11 @@ func (g *StringGrid) Draw() {
 	if g.RowCount() == 0 && g.RawRowCount() == 0 && g.dataRows() > 0 {
 		buf := screen.MakeDrawBuffer(g.Size.X)
 		for x := 0; x < g.Size.X; x++ {
-			screen.DrawCell(buf, x, " ", types.MakeAttr(0x08, 0x01))
+			screen.DrawCell(buf, x, " ", pal.EditorComment)
 		}
 		msg := "(no rows)"
 		mw := utf8.StringDisplayWidth(msg)
-		screen.DrawStr(buf, (g.Size.X-mw)/2, msg, types.MakeAttr(0x08, 0x01))
+		screen.DrawStr(buf, (g.Size.X-mw)/2, msg, pal.EditorComment)
 		g.WriteLine(0, rowOff+g.dataRows()/2, g.Size.X, 1, buf)
 	}
 	// Caret in edit mode. The filter-edit cursor lives in the filter
@@ -1216,7 +1218,7 @@ func (g *StringGrid) drawCellsRowAt(buf screen.DrawBuffer, visRow int, cellColor
 		// active search substring. Cheap to compute per-cell since
 		// FindText is short and most rows won't match.
 		if !highlighted && g.FindText != "" && cellMatchesFind(text, g.FindText) {
-			findAttr := types.MakeAttr(0x00, 0x0E) // black on yellow
+			findAttr := theme.Get().TooltipNormal
 			for i := 0; i < innerW && x+1+i < g.Size.X; i++ {
 				if i < len(padded) {
 					buf[x+1+i].Attr = findAttr

@@ -18,6 +18,12 @@ import (
 // child's stdin/stdout, a pseudo-console handle wraps both, and the
 // child is started with PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE pointing
 // at it. ResizePseudoConsole tells the child about WINSIZE changes.
+//
+// A JobObject (with KILL_ON_JOB_CLOSE) holds the child process so that
+// abrupt parent termination (Ctrl-C in a debugger, crash, etc.) cleans
+// up the descendant tree instead of leaving orphans behind. Graceful
+// shutdown via Close() still goes through ClosePseudoConsole +
+// TerminateProcess.
 type ptyHandle struct {
 	hPC        windows.Handle
 	pipeInW    windows.Handle // parent → child stdin
@@ -26,11 +32,12 @@ type ptyHandle struct {
 	outFile    *os.File       // wraps pipeOutR for Read
 	procHandle windows.Handle
 	threadH    windows.Handle
+	jobH       windows.Handle // JobObject; closes → kills child + descendants
 	pid        uint32
 	cmd        *exec.Cmd // synthesized for PID + Wait surface — never Started
 }
 
-func startPTY(name string, args []string, env []string, cols, rows int) (*ptyHandle, error) {
+func startPTY(name string, args []string, env []string, dir string, cols, rows int) (*ptyHandle, error) {
 	// Create two pipes. Each call gives us (read, write); we'll keep
 	// the parent-side end and pass the child-side end to the
 	// pseudo-console. Pseudo-console takes ownership of the handles
@@ -111,16 +118,48 @@ func startPTY(name string, args []string, env []string, cols, rows int) (*ptyHan
 		}
 	}
 
+	var dirP *uint16
+	if dir != "" {
+		dirP, err = windows.UTF16PtrFromString(dir)
+		if err != nil {
+			windows.ClosePseudoConsole(hPC)
+			windows.CloseHandle(stdinParentW)
+			windows.CloseHandle(stdoutParentR)
+			return nil, err
+		}
+	}
+
 	var pi windows.ProcessInformation
 	flags := uint32(windows.EXTENDED_STARTUPINFO_PRESENT | windows.CREATE_UNICODE_ENVIRONMENT)
 	if err := windows.CreateProcess(
 		nil, cmdLineP, nil, nil, false,
-		flags, envBlock, nil, &si.StartupInfo, &pi,
+		flags, envBlock, dirP, &si.StartupInfo, &pi,
 	); err != nil {
 		windows.ClosePseudoConsole(hPC)
 		windows.CloseHandle(stdinParentW)
 		windows.CloseHandle(stdoutParentR)
 		return nil, fmt.Errorf("CreateProcess: %w", err)
+	}
+
+	// Stuff the new process into a JobObject set to terminate every
+	// member on handle close. The OS auto-closes the handle when the
+	// parent dies — including ungraceful exits — so descendants (the
+	// shell, programs it spawns) don't escape into init.
+	jobH, jobErr := windows.CreateJobObject(nil, nil)
+	if jobErr == nil {
+		info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{
+			BasicLimitInformation: windows.JOBOBJECT_BASIC_LIMIT_INFORMATION{
+				LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+			},
+		}
+		if _, e := windows.SetInformationJobObject(
+			jobH,
+			windows.JobObjectExtendedLimitInformation,
+			uintptr(unsafe.Pointer(&info)),
+			uint32(unsafe.Sizeof(info)),
+		); e == nil {
+			_ = windows.AssignProcessToJobObject(jobH, pi.Process)
+		}
 	}
 
 	p := &ptyHandle{
@@ -131,6 +170,7 @@ func startPTY(name string, args []string, env []string, cols, rows int) (*ptyHan
 		outFile:    os.NewFile(uintptr(stdoutParentR), "conpty-out"),
 		procHandle: pi.Process,
 		threadH:    pi.Thread,
+		jobH:       jobH,
 		pid:        pi.ProcessId,
 	}
 	// Synthesize an *exec.Cmd shell so the rest of the package can
@@ -168,6 +208,12 @@ func (p *ptyHandle) Close() error {
 	if p.threadH != 0 {
 		windows.CloseHandle(p.threadH)
 		p.threadH = 0
+	}
+	if p.jobH != 0 {
+		// Closing the job kills any remaining members. Last line of
+		// defense against descendant processes outliving the pane.
+		windows.CloseHandle(p.jobH)
+		p.jobH = 0
 	}
 	return nil
 }
