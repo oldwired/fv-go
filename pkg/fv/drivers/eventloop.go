@@ -87,6 +87,12 @@ func FromTermEvent(t term.Event) Event {
 		e.What = consts.EvCommand
 		e.Command = consts.CmPaste
 		e.InfoPtr = t.Paste
+		// Carry the truncation flag in InfoByte. Downstream readers
+		// that only need the string keep doing e.InfoPtr.(string);
+		// callers who care can check (e.InfoByte & consts.PasteTruncated).
+		if t.Truncated {
+			e.InfoByte = consts.PasteTruncated
+		}
 	}
 	return e
 }

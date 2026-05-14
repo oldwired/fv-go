@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/profile"
@@ -16,26 +18,37 @@ import (
 	xterm "golang.org/x/term"
 )
 
+// terminalWriter is the minimal interface posixBackend.Flush needs.
+// Carved out as a separate field (rather than re-typing posixBackend.out)
+// so probe / raw-mode paths keep their *os.File for Fd() access.
+type terminalWriter interface {
+	WriteString(string) (int, error)
+}
+
 func newPlatformBackend() Backend { return &posixBackend{} }
 
 type posixBackend struct {
-	in       *os.File
-	out      *os.File
-	prevTerm *xterm.State
-	buf      *cellBuf
-	enc      *sgrEncoder
-	cursorX  int
-	cursorY  int
-	cursorOn bool
-	events   chan Event
-	stop     chan struct{}
-	winch    chan os.Signal
-	reader   *reader
+	in        *os.File
+	out       *os.File
+	writer    terminalWriter // Flush write target; defaults to b.out
+	prevTerm  *xterm.State
+	buf       *cellBuf
+	enc       *sgrEncoder
+	cursorX   int
+	cursorY   int
+	cursorOn  bool
+	events    chan Event
+	stop      chan struct{}
+	done      chan struct{} // closed by readLoop when it exits
+	winch     chan os.Signal
+	reader    *reader
+	closeOnce sync.Once
 }
 
 func (b *posixBackend) Init() error {
 	b.in = os.Stdin
 	b.out = os.Stdout
+	b.writer = b.out
 
 	if !xterm.IsTerminal(int(b.in.Fd())) {
 		return errors.New("term: stdin is not a tty")
@@ -85,6 +98,10 @@ func (b *posixBackend) Init() error {
 	b.cursorOn = false
 	b.events = make(chan Event, 64)
 	b.stop = make(chan struct{})
+	// done is initialized here, in Init, before the readLoop starts —
+	// so Close()'s wait-for-exit branch can always select on it without
+	// a nil-channel guard.
+	b.done = make(chan struct{})
 	b.winch = make(chan os.Signal, 1)
 	signal.Notify(b.winch, syscall.SIGWINCH)
 	b.reader = newReader(b.in)
@@ -103,31 +120,54 @@ func (b *posixBackend) Init() error {
 	return nil
 }
 
+// Close is idempotent — sync.Once guarantees a double call doesn't
+// re-close channels or panic. After a partial Init failure Close cannot
+// be retried; re-initializing from a half-set-up tty is unsafe, so the
+// once-and-done semantics are what we want.
+//
+// Close stops the read loop, signals it via the stop channel, and waits
+// briefly for the reader goroutine to exit via the done channel. The
+// blocking read inside the goroutine cannot be canceled directly;
+// restoring cooked mode typically unblocks it within milliseconds.
+// Worst case the wait times out and the goroutine exits after the next
+// byte arrives — by which point the terminal is back to a sane state
+// and the leftover goroutine is harmless.
 func (b *posixBackend) Close() error {
-	if b.stop != nil {
-		close(b.stop)
-		b.stop = nil
-	}
-	if b.winch != nil {
-		signal.Stop(b.winch)
-		b.winch = nil
-	}
-	// restore terminal state (best effort, in order)
-	_, _ = b.out.WriteString(strings.Join([]string{
-		"\x1b]22;\x07", // mouse cursor: clear override (restores terminal default)
-		"\x1b[?1004l",  // focus events off
-		"\x1b[?2004l",  // bracketed paste off
-		"\x1b[?1006l",
-		"\x1b[?1002l", // cell-motion off
-		"\x1b[?1000l",
-		"\x1b[?25h",   // show cursor
-		"\x1b[0m",     // SGR reset
-		"\x1b[?1049l", // exit alt screen
-	}, ""))
-	if b.prevTerm != nil && b.in != nil {
-		_ = xterm.Restore(int(b.in.Fd()), b.prevTerm)
-		b.prevTerm = nil
-	}
+	b.closeOnce.Do(func() {
+		if b.stop != nil {
+			close(b.stop)
+			// Leave b.stop non-nil. Reading from a closed channel returns
+			// immediately, which is exactly what consumers want.
+		}
+		if b.winch != nil {
+			signal.Stop(b.winch)
+			b.winch = nil
+		}
+		// restore terminal state (best effort, in order)
+		_, _ = b.out.WriteString(strings.Join([]string{
+			"\x1b]22;\x07", // mouse cursor: clear override (restores terminal default)
+			"\x1b[?1004l",  // focus events off
+			"\x1b[?2004l",  // bracketed paste off
+			"\x1b[?1006l",
+			"\x1b[?1002l", // cell-motion off
+			"\x1b[?1000l",
+			"\x1b[?25h",   // show cursor
+			"\x1b[0m",     // SGR reset
+			"\x1b[?1049l", // exit alt screen
+		}, ""))
+		if b.prevTerm != nil && b.in != nil {
+			_ = xterm.Restore(int(b.in.Fd()), b.prevTerm)
+			b.prevTerm = nil
+		}
+		// Best-effort wait for the read loop to finish. Restoring cooked
+		// mode usually unblocks the pending Read promptly.
+		if b.done != nil {
+			select {
+			case <-b.done:
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	})
 	return nil
 }
 
@@ -157,7 +197,7 @@ func (b *posixBackend) Flush() error {
 	spans := b.buf.dirty()
 	if len(spans) == 0 && b.cursorOn {
 		// at minimum reposition cursor if it should be on
-		_, err := b.out.WriteString(cursorMove(b.cursorX, b.cursorY) + "\x1b[?25h")
+		_, err := b.writer.WriteString(cursorMove(b.cursorX, b.cursorY) + "\x1b[?25h")
 		return err
 	}
 
@@ -186,8 +226,13 @@ func (b *posixBackend) Flush() error {
 		sb.WriteString(cursorMove(b.cursorX, b.cursorY))
 		sb.WriteString("\x1b[?25h")
 	}
-	_, err := b.out.WriteString(sb.String())
-	b.buf.commit()
+	_, err := b.writer.WriteString(sb.String())
+	// Only commit the front buffer after a successful write. If the
+	// write failed or was partial, the diff for the next Flush still
+	// reflects what the user actually sees on screen.
+	if err == nil {
+		b.buf.commit()
+	}
 	b.enc.hasLast = false
 	return err
 }
@@ -235,6 +280,7 @@ func (b *posixBackend) signalLoop() {
 }
 
 func (b *posixBackend) readLoop() {
+	defer close(b.done)
 	for {
 		select {
 		case <-b.stop:

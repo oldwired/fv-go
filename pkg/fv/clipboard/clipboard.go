@@ -15,14 +15,50 @@ package clipboard
 
 import (
 	"encoding/base64"
+	"errors"
 	"sync"
 )
+
+// Policy bounds OSC 52 emission. Zero value is sane (OSC 52 enabled,
+// 100 KB default) — DisableOSC52 inverts the bool so callers don't
+// need to remember to set EnableOSC52:true.
+type Policy struct {
+	DisableOSC52 bool // zero value: OSC 52 enabled
+	MaxBytes     int  // zero value: normalized to 100 KB
+}
+
+// defaultPolicy is the initial setting before any SetPolicy call.
+var defaultPolicy = Policy{MaxBytes: 100_000}
+
+// ErrClipboardTooLarge is returned by TrySetText when the payload
+// would exceed Policy.MaxBytes. The internal buffer is still updated;
+// only the OSC 52 emission is skipped.
+var ErrClipboardTooLarge = errors.New("clipboard: payload exceeds policy MaxBytes")
 
 var (
 	mu     sync.RWMutex
 	buf    string
 	writer func(string) error
+	policy = defaultPolicy
 )
+
+// normalizePolicy fills in a zero MaxBytes with the default. Called
+// from SetPolicy so callers can pass Policy{DisableOSC52: true} and
+// not have to specify a cap they don't care about.
+func normalizePolicy(p Policy) Policy {
+	if p.MaxBytes <= 0 {
+		p.MaxBytes = defaultPolicy.MaxBytes
+	}
+	return p
+}
+
+// SetPolicy installs new OSC 52 policy. Goroutine-safe.
+func SetPolicy(p Policy) {
+	p = normalizePolicy(p)
+	mu.Lock()
+	policy = p
+	mu.Unlock()
+}
 
 // SetWriter installs the OSC-52 writer (typically a closure over
 // term.Backend.WriteRaw). Pass nil to disable host-clipboard sync.
@@ -34,18 +70,35 @@ func SetWriter(w func(string) error) {
 }
 
 // SetText replaces the clipboard contents. The new value is also
-// pushed to the host clipboard via OSC 52 if a writer is installed.
-func SetText(s string) {
+// pushed to the host clipboard via OSC 52 if a writer is installed
+// and the current policy permits it. Errors are swallowed — most
+// widget copy paths don't want to handle clipboard errors; use
+// TrySetText if you do.
+func SetText(s string) { _ = TrySetText(s) }
+
+// TrySetText is the error-returning variant of SetText. The internal
+// buffer is always updated; the returned error reflects the OSC 52
+// emission path only:
+//
+//   - nil if the payload was written or OSC 52 is disabled by policy
+//   - ErrClipboardTooLarge if len(s) > policy.MaxBytes
+//   - the writer's error if the writer returned one
+func TrySetText(s string) error {
 	mu.Lock()
 	buf = s
 	w := writer
+	p := policy
 	mu.Unlock()
-	if w != nil && len(s) > 0 {
-		// OSC 52 selection codes: c = clipboard, p = primary, q = secondary,
-		// s = "selection". "c" works on the most terminals.
-		enc := base64.StdEncoding.EncodeToString([]byte(s))
-		_ = w("\x1b]52;c;" + enc + "\x07")
+	if p.DisableOSC52 || w == nil || len(s) == 0 {
+		return nil
 	}
+	if len(s) > p.MaxBytes {
+		return ErrClipboardTooLarge
+	}
+	// OSC 52 selection codes: c = clipboard, p = primary, q = secondary,
+	// s = "selection". "c" works on the most terminals.
+	enc := base64.StdEncoding.EncodeToString([]byte(s))
+	return w("\x1b]52;c;" + enc + "\x07")
 }
 
 // GetText returns the current internal buffer. Bracketed-paste events

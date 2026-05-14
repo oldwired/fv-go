@@ -2,105 +2,85 @@ package grid
 
 import (
 	"bufio"
-	"errors"
+	"encoding/csv"
 	"io"
 	"strings"
 )
 
-// CSVOptions controls CSV import / export. Defaults (CSVOptions{})
-// produce RFC-4180-style output: comma delimiter, CRLF line endings,
-// quote-when-necessary. Set Delimiter to ';' or '\t' for European CSV
-// or TSV. AutoDetectDelimiter, on import only, sniffs the first non-
-// empty line for the most frequent of {',', ';', '\t'} and uses that.
+// CSVOptions controls CSV import / export. Zero value is minimal and
+// boring (`CSVOptions{}` → comma, LF, no header). Use DefaultCSVOptions
+// for spreadsheet-style output (CRLF + header). AutoDetectDelimiter,
+// on import only, sniffs the first non-empty line for the most frequent
+// of {',', ';', '\t'} and overrides Delimiter.
 type CSVOptions struct {
-	Delimiter           rune // default: ','
-	LineEnd             string
+	Delimiter           rune   // zero → ','
+	LineEnd             string // zero → "\n"
 	AutoDetectDelimiter bool
 	IncludeHeader       bool // export header row; import treats first row as data
 }
 
-// SaveCSV writes the grid's data (after current filter/sort) to w.
-// IncludeHeader controls whether a header row is emitted; default true
-// is the convention SaveCSV-from-spreadsheet apps use.
-func (g *StringGrid) SaveCSV(w io.Writer, opts CSVOptions) error {
+// DefaultCSVOptions returns the spreadsheet-style configuration:
+// comma delimiter, CRLF line endings, header on export / import.
+func DefaultCSVOptions() CSVOptions {
+	return CSVOptions{
+		Delimiter:     ',',
+		LineEnd:       "\r\n",
+		IncludeHeader: true,
+	}
+}
+
+// normalizeCSVOptions fills in zero-value Delimiter / LineEnd so the
+// rest of the code doesn't have to defensive-check.
+func normalizeCSVOptions(opts CSVOptions) CSVOptions {
 	if opts.Delimiter == 0 {
 		opts.Delimiter = ','
 	}
 	if opts.LineEnd == "" {
-		opts.LineEnd = "\r\n"
+		opts.LineEnd = "\n"
 	}
-	bw := bufio.NewWriter(w)
+	return opts
+}
+
+// SaveCSV writes the grid's data to w using encoding/csv. The export
+// reflects the current filter/sort (visible rows in their displayed
+// order) and includes all columns — Column.Hidden is visual state, not
+// a data filter.
+//
+// LineEnd only respects "\n" vs "\r\n"; encoding/csv.Writer doesn't
+// expose finer line-ending control. Other values are interpreted as
+// CRLF if they contain '\r', else LF.
+func (g *StringGrid) SaveCSV(w io.Writer, opts CSVOptions) error {
+	opts = normalizeCSVOptions(opts)
+	cw := csv.NewWriter(w)
+	cw.Comma = opts.Delimiter
+	cw.UseCRLF = strings.Contains(opts.LineEnd, "\r")
 	if opts.IncludeHeader {
 		titles := make([]string, len(g.Columns))
 		for i, c := range g.Columns {
 			titles[i] = c.Title
 		}
-		if err := writeCSVRow(bw, titles, opts); err != nil {
+		if err := cw.Write(titles); err != nil {
 			return err
 		}
 	}
 	g.ensureVisible()
+	row := make([]string, len(g.Columns))
 	for _, raw := range g.visibleRows {
-		row := make([]string, len(g.Columns))
 		for c := range g.Columns {
 			row[c] = g.rawCell(raw, c)
 		}
-		if err := writeCSVRow(bw, row, opts); err != nil {
+		if err := cw.Write(row); err != nil {
 			return err
 		}
 	}
-	return bw.Flush()
+	cw.Flush()
+	return cw.Error()
 }
 
-func writeCSVRow(w *bufio.Writer, fields []string, opts CSVOptions) error {
-	for i, f := range fields {
-		if i > 0 {
-			if _, err := w.WriteRune(opts.Delimiter); err != nil {
-				return err
-			}
-		}
-		if needsQuoting(f, opts.Delimiter) {
-			if err := w.WriteByte('"'); err != nil {
-				return err
-			}
-			for _, r := range f {
-				if r == '"' {
-					if _, err := w.WriteString(`""`); err != nil {
-						return err
-					}
-				} else {
-					if _, err := w.WriteRune(r); err != nil {
-						return err
-					}
-				}
-			}
-			if err := w.WriteByte('"'); err != nil {
-				return err
-			}
-		} else {
-			if _, err := w.WriteString(f); err != nil {
-				return err
-			}
-		}
-	}
-	_, err := w.WriteString(opts.LineEnd)
-	return err
-}
-
-// needsQuoting reports whether f contains any of the characters that
-// require quoting under RFC 4180 (delimiter, CR, LF, or quote itself).
-func needsQuoting(f string, delim rune) bool {
-	for _, r := range f {
-		if r == delim || r == '"' || r == '\r' || r == '\n' {
-			return true
-		}
-	}
-	return false
-}
-
-// LoadCSV parses CSV from r and replaces the grid's rows. IncludeHeader
-// in opts treats the first row as column titles (it's discarded from
-// the data set, and column count is adjusted if needed).
+// LoadCSV parses CSV from r and replaces the grid's rows. Uses
+// encoding/csv so malformed input (notably EOF inside a quoted field)
+// surfaces as an error — the previous hand-rolled parser silently
+// accepted truncated quotes.
 func (g *StringGrid) LoadCSV(r io.Reader, opts CSVOptions) error {
 	br := bufio.NewReader(r)
 	if opts.AutoDetectDelimiter || opts.Delimiter == 0 {
@@ -109,10 +89,13 @@ func (g *StringGrid) LoadCSV(r io.Reader, opts CSVOptions) error {
 			return err
 		}
 		opts.Delimiter = delim
-		// peek already consumed; we use a small pre-pended reader.
 		br = bufio.NewReader(io.MultiReader(strings.NewReader(peek), br))
 	}
-	parsed, err := parseAllCSV(br, opts.Delimiter)
+	opts = normalizeCSVOptions(opts)
+	cr := csv.NewReader(br)
+	cr.Comma = opts.Delimiter
+	cr.FieldsPerRecord = -1 // tolerate ragged rows
+	parsed, err := cr.ReadAll()
 	if err != nil {
 		return err
 	}
@@ -181,83 +164,3 @@ func sniffDelimiter(br *bufio.Reader) (rune, string, error) {
 	}
 	return best, line, err
 }
-
-// parseAllCSV reads the entire stream and returns the parsed rows.
-// Implements RFC 4180: quoted fields preserve their delimiter / CR /
-// LF; doubled quotes inside a quoted field are a literal quote;
-// unquoted fields end at the next delimiter or line ending.
-func parseAllCSV(r *bufio.Reader, delim rune) ([][]string, error) {
-	if delim == 0 {
-		delim = ','
-	}
-	var out [][]string
-	var row []string
-	var field strings.Builder
-	inQuote := false
-	for {
-		c, _, err := r.ReadRune()
-		if err == io.EOF {
-			if field.Len() > 0 || len(row) > 0 {
-				row = append(row, field.String())
-				out = append(out, row)
-			}
-			return out, nil
-		}
-		if err != nil {
-			return out, err
-		}
-		if inQuote {
-			if c == '"' {
-				next, _, e := r.ReadRune()
-				if e == io.EOF {
-					inQuote = false
-					continue
-				}
-				if e != nil {
-					return out, e
-				}
-				if next == '"' {
-					field.WriteRune('"')
-					continue
-				}
-				if err := r.UnreadRune(); err != nil {
-					return out, err
-				}
-				inQuote = false
-				continue
-			}
-			field.WriteRune(c)
-			continue
-		}
-		switch c {
-		case '"':
-			inQuote = true
-		case delim:
-			row = append(row, field.String())
-			field.Reset()
-		case '\r':
-			// Look for the optional LF.
-			next, _, e := r.ReadRune()
-			if e == nil && next != '\n' {
-				if err := r.UnreadRune(); err != nil {
-					return out, err
-				}
-			}
-			row = append(row, field.String())
-			field.Reset()
-			out = append(out, row)
-			row = nil
-		case '\n':
-			row = append(row, field.String())
-			field.Reset()
-			out = append(out, row)
-			row = nil
-		default:
-			field.WriteRune(c)
-		}
-	}
-}
-
-// ensure the io.Reader path compiles even if a future refactor moves
-// these out.
-var _ error = errors.New("placeholder")

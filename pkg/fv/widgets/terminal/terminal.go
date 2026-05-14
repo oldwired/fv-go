@@ -170,23 +170,31 @@ func New(bounds geom.Rect) *Terminal {
 	// when we tried, zsh hung in tcsetattr (TCSADRAIN waiting on a PTY
 	// buffer the reader could no longer drain) and the whole UI froze.
 	// State is set under the caller's lock, no further sync needed.
+	//
+	// Host-supplied callbacks (t.OnTitle / t.OnCWDChange / t.OnBell)
+	// are dispatched via views.CallSoon so they run on the UI
+	// goroutine. CallSoon only enqueues an event — it does not
+	// acquire t.mu — so calling it while holding t.mu is safe.
 	t.par.OnTitle = func(title string) {
 		t.Title = title
-		if t.OnTitle != nil {
-			t.OnTitle(title)
+		cb := t.OnTitle // captured under caller's lock
+		if cb != nil {
+			views.CallSoon(func() { cb(title) })
 		}
 		views.MarkDirty()
 	}
 	t.par.OnCWD = func(cwd string) {
 		t.CWD = cwd
-		if t.OnCWDChange != nil {
-			t.OnCWDChange(cwd)
+		cb := t.OnCWDChange
+		if cb != nil {
+			views.CallSoon(func() { cb(cwd) })
 		}
 		views.MarkDirty()
 	}
 	t.par.OnBell = func() {
-		if t.OnBell != nil {
-			t.OnBell()
+		cb := t.OnBell
+		if cb != nil {
+			views.CallSoon(cb)
 		}
 	}
 	return t
@@ -509,13 +517,18 @@ func (t *Terminal) readLoop() {
 			}
 			t.mu.Lock()
 			t.par.Feed(chunk)
-			t.mu.Unlock()
+			// Snapshot callback + debounce timestamp under the lock
+			// so concurrent assignment to t.OnActivity from host
+			// code is race-free.
 			now := time.Now()
+			var activityCB func()
 			if t.OnActivity != nil && now.Sub(t.lastActivity) >= activityDebounce {
 				t.lastActivity = now
-				// Fire without holding t.mu — callbacks may want to
-				// hop onto the UI thread / call back into views.
-				t.OnActivity()
+				activityCB = t.OnActivity
+			}
+			t.mu.Unlock()
+			if activityCB != nil {
+				views.CallSoon(activityCB)
 			}
 			views.MarkDirty()
 		}
@@ -535,10 +548,17 @@ func (t *Terminal) readLoop() {
 }
 
 // waitLoop watches for child-process exit so we can fire OnExit.
+//
+// OnExit runs on the UI goroutine via CallSoon so host code can
+// safely manipulate views (e.g., close the parent window) without
+// having to marshal itself.
 func (t *Terminal) waitLoop() {
 	err := t.pty.Wait()
-	if t.OnExit != nil {
-		t.OnExit(err)
+	t.mu.Lock()
+	cb := t.OnExit
+	t.mu.Unlock()
+	if cb != nil {
+		views.CallSoon(func() { cb(err) })
 	}
 	views.MarkDirty()
 }

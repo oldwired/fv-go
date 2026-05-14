@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/profile"
@@ -13,24 +15,34 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// terminalWriter is the minimal interface winBackend.Flush needs.
+// Carved out as a separate field so probe / console-API paths keep
+// using *os.File / Handle directly.
+type terminalWriter interface {
+	WriteString(string) (int, error)
+}
+
 func newPlatformBackend() Backend { return &winBackend{} }
 
 type winBackend struct {
-	stdin    windows.Handle
-	stdout   windows.Handle
-	prevIn   uint32
-	prevOut  uint32
-	prevCP   uint32
-	buf      *cellBuf
-	enc      *sgrEncoder
-	out      *os.File
-	in       *os.File
-	cursorX  int
-	cursorY  int
-	cursorOn bool
-	events   chan Event
-	stop     chan struct{}
-	reader   *reader
+	stdin     windows.Handle
+	stdout    windows.Handle
+	prevIn    uint32
+	prevOut   uint32
+	prevCP    uint32
+	buf       *cellBuf
+	enc       *sgrEncoder
+	out       *os.File
+	writer    terminalWriter // Flush write target; defaults to b.out
+	in        *os.File
+	cursorX   int
+	cursorY   int
+	cursorOn  bool
+	events    chan Event
+	stop      chan struct{}
+	done      chan struct{} // closed by readLoop when it exits
+	reader    *reader
+	closeOnce sync.Once
 }
 
 const (
@@ -44,6 +56,7 @@ const (
 func (b *winBackend) Init() error {
 	b.in = os.Stdin
 	b.out = os.Stdout
+	b.writer = b.out
 	b.stdin = windows.Handle(b.in.Fd())
 	b.stdout = windows.Handle(b.out.Fd())
 
@@ -90,6 +103,8 @@ func (b *winBackend) Init() error {
 
 	b.events = make(chan Event, 64)
 	b.stop = make(chan struct{})
+	// done initialized before readLoop starts; see posix.go for rationale.
+	b.done = make(chan struct{})
 	b.reader = newReader(b.in)
 	go b.readLoop()
 
@@ -101,28 +116,41 @@ func (b *winBackend) Init() error {
 	return nil
 }
 
+// Close is idempotent — sync.Once guarantees a double call doesn't
+// re-close channels or panic. After a partial Init failure Close cannot
+// be retried; see posix.go for the same rationale.
 func (b *winBackend) Close() error {
-	if b.stop != nil {
-		close(b.stop)
-		b.stop = nil
-	}
-	if b.out != nil {
-		_, _ = b.out.WriteString(strings.Join([]string{
-			"\x1b]22;\x07", // restore mouse cursor default
-			"\x1b[?1004l", "\x1b[?2004l",
-			"\x1b[?1006l", "\x1b[?1002l", "\x1b[?1000l",
-			"\x1b[?25h", "\x1b[0m", "\x1b[?1049l",
-		}, ""))
-	}
-	if b.stdout != 0 {
-		_ = windows.SetConsoleMode(b.stdout, b.prevOut)
-	}
-	if b.stdin != 0 {
-		_ = windows.SetConsoleMode(b.stdin, b.prevIn)
-	}
-	if b.prevCP != 0 {
-		_ = windows.SetConsoleOutputCP(b.prevCP)
-	}
+	b.closeOnce.Do(func() {
+		if b.stop != nil {
+			close(b.stop)
+			// Leave b.stop non-nil; receivers on a closed channel are fine.
+		}
+		if b.out != nil {
+			_, _ = b.out.WriteString(strings.Join([]string{
+				"\x1b]22;\x07", // restore mouse cursor default
+				"\x1b[?1004l", "\x1b[?2004l",
+				"\x1b[?1006l", "\x1b[?1002l", "\x1b[?1000l",
+				"\x1b[?25h", "\x1b[0m", "\x1b[?1049l",
+			}, ""))
+		}
+		if b.stdout != 0 {
+			_ = windows.SetConsoleMode(b.stdout, b.prevOut)
+		}
+		if b.stdin != 0 {
+			_ = windows.SetConsoleMode(b.stdin, b.prevIn)
+		}
+		if b.prevCP != 0 {
+			_ = windows.SetConsoleOutputCP(b.prevCP)
+		}
+		// Bounded wait for the read loop. Restoring console modes
+		// usually wakes any blocking ReadConsoleInput.
+		if b.done != nil {
+			select {
+			case <-b.done:
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	})
 	return nil
 }
 
@@ -149,7 +177,7 @@ func (b *winBackend) Invalidate(x, y int) { b.buf.invalidate(x, y) }
 func (b *winBackend) Flush() error {
 	spans := b.buf.dirty()
 	if len(spans) == 0 && b.cursorOn {
-		_, err := b.out.WriteString(cursorMove(b.cursorX, b.cursorY) + "\x1b[?25h")
+		_, err := b.writer.WriteString(cursorMove(b.cursorX, b.cursorY) + "\x1b[?25h")
 		return err
 	}
 	var sb strings.Builder
@@ -174,8 +202,11 @@ func (b *winBackend) Flush() error {
 		sb.WriteString(cursorMove(b.cursorX, b.cursorY))
 		sb.WriteString("\x1b[?25h")
 	}
-	_, err := b.out.WriteString(sb.String())
-	b.buf.commit()
+	_, err := b.writer.WriteString(sb.String())
+	// Only commit after a successful write; see posix.go for rationale.
+	if err == nil {
+		b.buf.commit()
+	}
 	b.enc.hasLast = false
 	return err
 }
@@ -194,6 +225,7 @@ func (b *winBackend) Suspend() error { return errors.New("suspend not supported 
 func (b *winBackend) Resume() error { return nil }
 
 func (b *winBackend) readLoop() {
+	defer close(b.done)
 	for {
 		select {
 		case <-b.stop:

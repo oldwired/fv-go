@@ -187,7 +187,10 @@ func (g *Group) Delete(v View) {
 
 // MakeFirst moves v to the end of the children slice, which means it
 // will be drawn last (on top) and receive mouse events first. Used by
-// non-modal windows to raise themselves on click.
+// non-modal windows to raise themselves on click. Marks the program
+// dirty so a programmatic raise (no user event in flight) still
+// repaints — Insert/Delete already do this, this brings raise into
+// parity.
 func (g *Group) MakeFirst(v View) {
 	for i, c := range g.Children {
 		if c == v {
@@ -198,6 +201,7 @@ func (g *Group) MakeFirst(v View) {
 			g.Children = append(g.Children, v)
 			g.current = len(g.Children) - 1
 			g.refreshActive()
+			MarkDirty()
 			return
 		}
 	}
@@ -206,7 +210,8 @@ func (g *Group) MakeFirst(v View) {
 // Focus selects v as the current child. SfSelected and SfFocused are
 // always set on v, even if v is already current — this matters because
 // initial Insert only marks SfSelected, so a click on the
-// already-current child still needs to gain SfFocused.
+// already-current child still needs to gain SfFocused. Marks the
+// program dirty for the same reason as MakeFirst.
 func (g *Group) Focus(v View) {
 	for i, c := range g.Children {
 		if c == v {
@@ -218,6 +223,7 @@ func (g *Group) Focus(v View) {
 			}
 			v.BaseView().State |= consts.SfSelected | consts.SfFocused
 			g.refreshActive()
+			MarkDirty()
 			return
 		}
 	}
@@ -463,14 +469,17 @@ func (g *Group) ExecView(v View) uint16 {
 	}
 }
 
-// pumpFn / waitFn / dirtyFn are set by app.NewProgram so modal loops
-// (ExecView, MenuBox.Run, popupmenu.Run, fuzzyfinder.Run, etc.) can
-// drive the same idle-redraw + blocking-input cycle the main
-// Program.Run uses, without owning the goroutine.
+// pumpFn / waitFn / dirtyFn / callSoonFn are set by app.NewProgram so
+// modal loops (ExecView, MenuBox.Run, popupmenu.Run, fuzzyfinder.Run,
+// etc.) can drive the same idle-redraw + blocking-input cycle the main
+// Program.Run uses, without owning the goroutine. callSoonFn lets
+// widget code (Terminal, async data sources) marshal a callback back
+// onto the UI goroutine without importing pkg/fv/app.
 var (
-	pumpFn  func() // drain term events, redraw, flush; non-blocking
-	waitFn  func() // block until at least one event is queued
-	dirtyFn func() // mark the program dirty so the next idle redraws
+	pumpFn     func()          // drain term events, redraw, flush; non-blocking
+	waitFn     func()          // block until at least one event is queued
+	dirtyFn    func()          // mark the program dirty so the next idle redraws
+	callSoonFn func(fn func()) // schedule fn on the UI goroutine
 )
 
 // SetPump installs the idle callback (drain+draw+flush).
@@ -482,6 +491,10 @@ func SetWait(f func()) { waitFn = f }
 // SetMarkDirty installs the mark-dirty callback.
 func SetMarkDirty(f func()) { dirtyFn = f }
 
+// SetCallSoon installs the scheduler callback used by CallSoon.
+// app.NewProgram wires this to Program.CallSoon.
+func SetCallSoon(f func(fn func())) { callSoonFn = f }
+
 // MarkDirty asks the program to repaint on the next idle pass.
 // Modal loops call this after handling each event so the
 // pump+pulse+dirty triad correctly registers "state has changed".
@@ -489,6 +502,24 @@ func MarkDirty() {
 	if dirtyFn != nil {
 		dirtyFn()
 	}
+}
+
+// CallSoon delivers fn on the UI goroutine via the installed scheduler.
+//
+// IMPORTANT: when no Program is installed (typically in unit tests
+// that instantiate views without a runtime), CallSoon executes fn
+// inline on the caller's goroutine. Tests that care about goroutine
+// affinity must install a scheduler via SetCallSoon. This is
+// bootstrap-only fallback behavior — do not rely on it in production.
+func CallSoon(fn func()) {
+	if fn == nil {
+		return
+	}
+	if callSoonFn != nil {
+		callSoonFn(fn)
+		return
+	}
+	fn()
 }
 
 func captureModalCmd(ev *drivers.Event) uint16 {

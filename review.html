@@ -1,0 +1,513 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta http-equiv="Content-Style-Type" content="text/css">
+  <title></title>
+  <meta name="Generator" content="Cocoa HTML Writer">
+  <meta name="CocoaVersion" content="2685.5">
+  <style type="text/css">
+    p.p3 {margin: 0.0px 0.0px 4.0px 0.0px; font: 12.0px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    p.p4 {margin: 0.0px 0.0px 16.0px 0.0px; font: 12.0px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    p.p5 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c; min-height: 15.0px}
+    p.p6 {margin: 0.0px 0.0px 0.0px 0.0px; font: 10.5px '.AppleSystemUIFontMonospaced'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c; background-color: #0c0c0c; background-color: rgba(12, 12, 12, 0.051); min-height: 12.0px}
+    p.p7 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.2px '.AppleSystemUIFontMonospaced'; color: #5722a5; -webkit-text-stroke: #5722a5}
+    p.p8 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.2px '.AppleSystemUIFontMonospaced'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c; min-height: 15.0px}
+    p.p9 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.2px '.AppleSystemUIFontMonospaced'; color: #aa2c67; -webkit-text-stroke: #aa2c67}
+    p.p10 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.2px '.AppleSystemUIFontMonospaced'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    p.p11 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.2px '.AppleSystemUIFontMonospaced'; color: #0f7628; -webkit-text-stroke: #0f7628}
+    p.p12 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.2px '.AppleSystemUIFontMonospaced'; color: #6e6e6e; -webkit-text-stroke: #6e6e6e}
+    p.p13 {margin: 0.0px 0.0px 0.0px 0.0px; font: 10.5px '.AppleSystemUIFontMonospaced'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c; min-height: 12.0px}
+    p.p14 {margin: 0.0px 0.0px 0.0px 0.0px; font: 10.5px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    p.p15 {margin: 0.0px 0.0px 0.0px 0.0px; font: 10.5px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #000000}
+    p.p16 {margin: 0.0px 0.0px 4.0px 0.0px; font: 10.5px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    p.p17 {margin: 0.0px 0.0px 16.0px 0.0px; font: 10.5px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    p.p19 {margin: 0.0px 0.0px 0.0px 0.0px; font: 14.0px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c; min-height: 17.0px}
+    p.p20 {margin: 0.0px 0.0px 0.0px 0.0px; font: 16.0px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c; min-height: 18.0px}
+    p.p21 {margin: 0.0px 0.0px 0.0px 0.0px; text-align: center; font: 16.0px 'Helvetica Neue'; color: #4b4b4b; -webkit-text-stroke: #4b4b4b; min-height: 18.0px}
+    li.li3 {margin: 0.0px 0.0px 4.0px 0.0px; font: 12.0px 'Helvetica Neue'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    li.li18 {margin: 0.0px 0.0px 4.0px 0.0px; font: 12.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c}
+    span.s1 {font-kerning: none}
+    span.s2 {font: 21.0px '.SF NS Mono'; font-kerning: none; background-color: #e7e7e7}
+    span.s3 {font: 24.0px '.Apple Color Emoji UI'; font-kerning: none}
+    span.s4 {font: 10.5px 'Helvetica Neue'; font-kerning: none; background-color: #e7e7e7}
+    span.s5 {font: 12.0px '.SF NS'; font-kerning: none}
+    span.s6 {font: 12.0px '.Apple Color Emoji UI'; font-kerning: none}
+    span.s7 {font-kerning: none; color: #aa2c67; background-color: #f7f7f7; -webkit-text-stroke: 0px #aa2c67}
+    span.s8 {font-kerning: none; color: #0c0c0c; background-color: #f7f7f7; -webkit-text-stroke: 0px #0c0c0c}
+    span.s9 {font-kerning: none; background-color: #f7f7f7}
+    span.s10 {font-kerning: none; color: #5722a5; background-color: #f7f7f7; -webkit-text-stroke: 0px #5722a5}
+    span.s11 {font-kerning: none; color: #a9350d; background-color: #f7f7f7; -webkit-text-stroke: 0px #a9350d}
+    span.s12 {font: 9.2px 'Helvetica Neue'; font-kerning: none; background-color: #e7e7e7; -webkit-text-stroke: 0px #0c0c0c}
+    span.s13 {font: 17.5px 'Helvetica Neue'; font-kerning: none; background-color: #e7e7e7}
+    span.s14 {font-kerning: none; background-color: #e7e7e7}
+    span.s15 {font: 12.0px 'Helvetica Neue'; font-kerning: none}
+    span.s16 {font-kerning: none; color: #ab7d05; background-color: #f7f7f7; -webkit-text-stroke: 0px #ab7d05}
+    span.s17 {font-kerning: none; color: #0f7628; background-color: #f7f7f7; -webkit-text-stroke: 0px #0f7628}
+    span.s18 {-webkit-text-stroke: 0px #000000}
+    span.s19 {font: 12.0px '.SF NS'; -webkit-text-stroke: 0px #000000}
+    span.Apple-tab-span {white-space:pre}
+    table.t1 {min-width: 768.0px}
+    td.td1 {width: 364.1px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #000000 #000000 #000000 #000000; padding: 8.0px 24.0px 8.0px 0.0px}
+    td.td2 {width: 403.9px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #000000 #000000 #000000 #000000; padding: 8.0px 40.0px 8.0px 6.0px}
+    td.td3 {width: 364.1px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #0c0c0c #0c0c0c #0c0c0c #0c0c0c; padding: 10.0px 24.0px 10.0px 0.0px}
+    td.td4 {width: 403.9px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #0c0c0c #0c0c0c #0c0c0c #0c0c0c; padding: 10.0px 0.0px 10.0px 6.0px}
+    td.td5 {width: 364.1px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; padding: 10.0px 24.0px 10.0px 0.0px}
+    td.td6 {width: 403.9px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; padding: 10.0px 0.0px 10.0px 6.0px}
+    td.td7 {width: 455.5px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #000000 #000000 #000000 #000000; padding: 8.0px 24.0px 8.0px 0.0px}
+    td.td8 {width: 312.5px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #000000 #000000 #000000 #000000; padding: 8.0px 40.0px 8.0px 6.0px}
+    td.td9 {width: 455.5px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #0c0c0c #0c0c0c #0c0c0c #0c0c0c; padding: 10.0px 24.0px 10.0px 0.0px}
+    td.td10 {width: 312.5px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; border-style: solid; border-width: 0.0px 0.0px 1.0px 0.0px; border-color: #0c0c0c #0c0c0c #0c0c0c #0c0c0c; padding: 10.0px 0.0px 10.0px 6.0px}
+    td.td11 {width: 455.5px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; padding: 10.0px 24.0px 10.0px 0.0px}
+    td.td12 {width: 312.5px; min-width: 128.0px; max-width: 192.0px; margin: 0.5px 0.5px 0.5px 0.5px; padding: 10.0px 0.0px 10.0px 6.0px}
+    ol.ol1 {list-style-type: decimal}
+  </style>
+</head>
+<body>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Comprehensive review: </b></span><span class="s2">oldwired/fv-go</span><span class="s1"><b> </b></span><span class="s3">🔎</span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Executive verdict</b></span></h2>
+<p class="p3"><span class="s4">fv-go</span><span class="s1"> is already a surprisingly deep and coherent terminal UI framework: classic Turbo Vision mental model, Go embedding/interface translation, full demo surface, headless rendering tests, widgets, SIXEL/image support, and an embedded terminal emulator. The architecture is ambitious but not random; it has a clear Pascal → Go migration strategy and good internal documentation. The README and quickstart explain the view tree, event routing, and core invariants well.  </span></p>
+<p class="p4"><span class="s1">The main risks are </span><span class="s5"><b>not</b></span><span class="s1"> widget completeness. The risks are </span><span class="s5"><b>runtime correctness under concurrency</b></span><span class="s1">, </span><span class="s5"><b>Windows ConPTY reliability</b></span><span class="s1">, </span><span class="s5"><b>global singleton state</b></span><span class="s1">, </span><span class="s5"><b>terminal lifecycle cleanup</b></span><span class="s1">, and </span><span class="s5"><b>lack of visible CI/status checks</b></span><span class="s1">. Those are exactly the parts that will bite when this leaves “cool port/demo” territory and becomes a real library. </span><span class="s6">⚠️</span></p>
+<p class="p4"><span class="s1">I reviewed this through the GitHub connector, not a local clone/build. The sandbox could not resolve GitHub directly, and the repository code search index is not available, so this is based on repository metadata, commit/file reads, and targeted source inspection.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>What is strong </b></span><span class="s3">✅</span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>1. The project has a clear mental model</b></span></h2>
+<p class="p3"><span class="s1">The architecture is legible: </span><span class="s4">Application/Program/Desktop</span><span class="s1">, </span><span class="s4">View/Group/Window</span><span class="s1">, drivers, terminal backend, widgets, and foundation layers. The README describes this layering explicitly and the quickstart explains event flow through preprocess, focused child, postprocess, and mouse routing.  </span></p>
+<p class="p4"><span class="s1">That matters. Terminal UI frameworks often collapse into callback soup. This one still has a system.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>2. The Pascal inheritance mapping is pragmatic</b></span></h2>
+<p class="p3"><span class="s1">The </span><span class="s4">Base</span><span class="s1"> + </span><span class="s4">View</span><span class="s1"> interface + </span><span class="s4">self View</span><span class="s1"> back-pointer design is ugly in the way all “virtual dispatch in Go” emulations are ugly, but it is deliberate and documented. </span><span class="s4">views.Base</span><span class="s1"> owns common state and concrete views embed it, while </span><span class="s4">SetSelf</span><span class="s1"> wires dispatch back into the concrete type. </span></p>
+<p class="p4"><span class="s1">That said, this is also a fragile invariant. More on that below.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>3. The headless backend is exactly the right test seam</b></span></h2>
+<p class="p3"><span class="s4">term.Headless</span><span class="s1"> gives you in-memory rendering, event injection, raw-write capture, and snapshots without touching a TTY. That is the correct foundation for golden tests and scripted UI behavior tests. </span></p>
+<p class="p4"><span class="s1">Do more of this. It is the difference between “terminal magic” and something maintainable.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>4. The dirty/wake pipeline shows real-world scar tissue</b></span></h2>
+<p class="p3"><span class="s1">The app loop has a dirty flag, wake channel, animation pulse, async PTY output handling, and a pre-flush phase for SIXEL. This is exactly the sort of thing that has to exist once PTY output and animated widgets enter the picture. </span></p>
+<p class="p4"><span class="s1">The comments in </span><span class="s4">CLAUDE.md</span><span class="s1"> also capture the intended contract well: async mutation calls </span><span class="s4">views.MarkDirty</span><span class="s1">, </span><span class="s4">waitOne</span><span class="s1"> wakes, and </span><span class="s4">idle</span><span class="s1"> clears dirty before drawing to preserve marks raised during drawing. </span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>5. Terminal/SIXEL support is ambitious in a useful way</b></span></h2>
+<p class="p3"><span class="s1">The terminal backend owns raw mode, alt screen, mouse tracking, bracketed paste, focus events, diff rendering, raw writes, and cell invalidation. The root backend abstraction includes </span><span class="s4">WriteRaw</span><span class="s1">, </span><span class="s4">MarkClean</span><span class="s1">, and </span><span class="s4">Invalidate</span><span class="s1">, which is the right kind of escape hatch for SIXEL z-order.  </span></p>
+<p class="p4"><span class="s1">This is a high-complexity area, but it is not hand-waved.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>P0 / fix-first issues </b></span><span class="s3">🔥</span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>1. Windows ConPTY environment block looks broken</b></span></h2>
+<p class="p3"><span class="s1">This is the most concrete hard bug I found.</span></p>
+<p class="p4"><span class="s4">pty_windows.go</span><span class="s1"> builds a Windows environment block by joining </span><span class="s4">KEY=VALUE</span><span class="s1"> strings with embedded NULs, then passes the resulting Go string to </span><span class="s4">syscall.UTF16FromString</span><span class="s1">. </span></p>
+<p class="p4"><span class="s1">That function rejects strings containing NUL bytes. A Windows environment block necessarily contains embedded NULs. Since </span><span class="s4">Terminal.Start</span><span class="s1"> normally supplies a non-empty environment, the Windows ConPTY path likely fails before </span><span class="s4">CreateProcess</span><span class="s1"> when </span><span class="s4">env</span><span class="s1"> is non-empty. The Unix path directly uses </span><span class="s4">exec.Cmd.Env</span><span class="s1">, so it does not have this problem.  </span></p>
+<p class="p4"><span class="s1">Fix it by returning a UTF-16 slice, not by converting an embedded-NUL string:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p7"><span class="s7">func</span><span class="s8"> </span><span class="s9">utf16EnvBlock</span><span class="s8">(</span><span class="s9">env</span><span class="s8"> []</span><span class="s9">string</span><span class="s8">) ([]</span><span class="s9">uint16</span><span class="s8">, </span><span class="s9">error</span><span class="s8">) {</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s7">var</span><span class="s8"> </span><span class="s9">block</span><span class="s8"> []</span><span class="s9">uint16</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p9"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">for</span><span class="s8"> </span><span class="s10">_</span><span class="s8">, </span><span class="s10">e</span><span class="s8"> </span><span class="s9">:=</span><span class="s8"> </span><span class="s9">range</span><span class="s8"> </span><span class="s10">env</span><span class="s8"> {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s7">if</span><span class="s9"> </span><span class="s10">strings</span><span class="s7">.</span><span class="s9">IndexByte(</span><span class="s10">e</span><span class="s9">, </span><span class="s11">0</span><span class="s9">) </span><span class="s7">&gt;=</span><span class="s9"> </span><span class="s11">0</span><span class="s9"> {</span></p>
+<p class="p11"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s7">return</span><span class="s8"> </span><span class="s11">nil</span><span class="s8">, </span><span class="s10">errors</span><span class="s7">.</span><span class="s8">New(</span><span class="s9">"environment contains NUL"</span><span class="s8">)</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span>}</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s9">block</span><span class="s8"> </span><span class="s7">=</span><span class="s8"> </span><span class="s9">append</span><span class="s8">(</span><span class="s9">block</span><span class="s8">, </span><span class="s9">utf16</span><span class="s7">.</span><span class="s8">Encode([]</span><span class="s9">rune</span><span class="s8">(</span><span class="s9">e</span><span class="s8">))...)</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s9">block</span><span class="s8"> </span><span class="s7">=</span><span class="s8"> </span><span class="s9">append</span><span class="s8">(</span><span class="s9">block</span><span class="s8">, </span><span class="s11">0</span><span class="s8">)</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>}</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p12"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s10">block</span><span class="s8"> </span><span class="s7">=</span><span class="s8"> </span><span class="s10">append</span><span class="s8">(</span><span class="s10">block</span><span class="s8">, </span><span class="s11">0</span><span class="s8">) </span><span class="s9"><i>// final terminator</i><i></i></span></p>
+<p class="p9"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">return</span><span class="s8"> </span><span class="s10">block</span><span class="s8">, </span><span class="s11">nil</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Then keep the slice alive until </span><span class="s4">CreateProcess</span><span class="s1"> returns:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p7"><span class="s7">var</span><span class="s8"> </span><span class="s9">envBlock</span><span class="s8"> </span><span class="s7">*</span><span class="s9">uint16</span></p>
+<p class="p7"><span class="s7">var</span><span class="s8"> </span><span class="s9">envBlockBuf</span><span class="s8"> []</span><span class="s9">uint16</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p10"><span class="s7">if</span><span class="s9"> </span><span class="s10">len</span><span class="s9">(</span><span class="s10">env</span><span class="s9">) </span><span class="s7">&gt;</span><span class="s9"> </span><span class="s11">0</span><span class="s9"> {</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">envBlockBuf</span><span class="s8">, </span><span class="s9">err</span><span class="s8"> </span><span class="s7">=</span><span class="s8"> </span><span class="s9">utf16EnvBlock</span><span class="s8">(</span><span class="s9">env</span><span class="s8">)</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span></span><span class="s7">if</span><span class="s9"> </span><span class="s10">err</span><span class="s9"> </span><span class="s7">!=</span><span class="s9"> </span><span class="s11">nil</span><span class="s9"> {</span></p>
+<p class="p12"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s9"><i>// cleanup...</i><i></i></span></p>
+<p class="p9"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s9">return</span><span class="s8"> </span><span class="s11">nil</span><span class="s8">, </span><span class="s10">err</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>}</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">envBlock</span><span class="s8"> </span><span class="s7">=</span><span class="s8"> </span><span class="s7">&amp;</span><span class="s9">envBlockBuf</span><span class="s8">[</span><span class="s11">0</span><span class="s8">]</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">I would not call the Windows terminal path “done” until this is fixed and covered by at least a small Windows CI smoke test.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>2. The dirty/wake path has probable data races</b></span></h2>
+<p class="p3"><span class="s4">NewProgram</span><span class="s1"> installs a global </span><span class="s4">views.SetMarkDirty</span><span class="s1"> callback that writes </span><span class="s4">p.dirty = true</span><span class="s1"> and signals </span><span class="s4">p.wake</span><span class="s1">. The main loop reads and writes the same </span><span class="s4">p.dirty</span><span class="s1"> field in </span><span class="s4">Run</span><span class="s1">, </span><span class="s4">idle</span><span class="s1">, </span><span class="s4">waitOne</span><span class="s1">, and event handling. </span></p>
+<p class="p4"><span class="s1">At the same time, </span><span class="s4">Terminal.readLoop</span><span class="s1"> runs in a goroutine, mutates terminal buffer state under </span><span class="s4">t.mu</span><span class="s1">, fires callbacks from the reader goroutine, and calls </span><span class="s4">views.MarkDirty()</span><span class="s1">. </span></p>
+<p class="p4"><span class="s1">So the intended model is already multi-goroutine. The </span><span class="s4">dirty</span><span class="s1"> flag should not be a plain bool.</span></p>
+<p class="p4"><span class="s1">Recommended fix:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p9"><span class="s9">type</span><span class="s8"> </span><span class="s10">Program</span><span class="s8"> </span><span class="s9">struct</span><span class="s8"> {</span></p>
+<p class="p12"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9"><i>// ...</i><i></i></span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span>dirty </span><span class="s9">atomic</span><span class="s7">.</span><span class="s9">Bool</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Then:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s10">views</span><span class="s7">.</span><span class="s9">SetMarkDirty(</span><span class="s7">func</span><span class="s9">() {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span></span><span class="s10">p</span><span class="s7">.</span><span class="s9">dirty</span><span class="s7">.</span><span class="s9">Store(</span><span class="s11">true</span><span class="s9">)</span></p>
+<p class="p9"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">select</span><span class="s8"> {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span></span><span class="s7">case</span><span class="s9"> </span><span class="s10">p</span><span class="s7">.</span><span class="s9">wake </span><span class="s7">&lt;-</span><span class="s9"> </span><span class="s7">struct</span><span class="s9">{}{}:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>default:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>}</span></p>
+<p class="p10"><span class="s9">})</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">And in </span><span class="s4">idle</span><span class="s1">:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s10">dirty</span><span class="s9"> </span><span class="s7">:=</span><span class="s9"> </span><span class="s10">p</span><span class="s7">.</span><span class="s9">dirty</span><span class="s7">.</span><span class="s9">Load()</span></p>
+<p class="p7"><span class="s7">if</span><span class="s8"> </span><span class="s7">!</span><span class="s9">dirty</span><span class="s8"> </span><span class="s7">&amp;&amp;</span><span class="s8"> </span><span class="s7">!</span><span class="s9">pumped</span><span class="s8"> </span><span class="s7">&amp;&amp;</span><span class="s8"> </span><span class="s7">!</span><span class="s9">animDirty</span><span class="s8"> {</span></p>
+<p class="p9"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">return</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p10"><span class="s10">p</span><span class="s7">.</span><span class="s9">dirty</span><span class="s7">.</span><span class="s9">Store(</span><span class="s11">false</span><span class="s9">)</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">That only fixes the flag. A deeper issue remains: callbacks like </span><span class="s4">OnTitle</span><span class="s1">, </span><span class="s4">OnCWDChange</span><span class="s1">, </span><span class="s4">OnActivity</span><span class="s1">, and </span><span class="s4">OnExit</span><span class="s1"> are documented as firing from reader/wait goroutines. </span></p>
+<p class="p4"><span class="s1">That is dangerous if host code touches view tree state. I would add a UI-thread marshal API:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s7">func</span><span class="s9"> (</span><span class="s10">p</span><span class="s9"> </span><span class="s7">*</span><span class="s10">Program</span><span class="s9">) CallSoon(</span><span class="s10">fn</span><span class="s9"> </span><span class="s7">func</span><span class="s9">()) {</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s9">p</span><span class="s7">.</span><span class="s8">PostEvent(</span><span class="s9">drivers</span><span class="s7">.</span><span class="s9">Event</span><span class="s8">{</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s10">What</span><span class="s9">:<span class="Apple-converted-space">    </span></span><span class="s10">consts</span><span class="s7">.</span><span class="s9">EvCommand,</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s10">Command</span><span class="s9">: </span><span class="s10">consts</span><span class="s7">.</span><span class="s9">CmUserCallback,</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s9">InfoPtr</span><span class="s8">: </span><span class="s9">fn</span><span class="s8">,</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>})</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Then callbacks can be delivered inside the main event loop rather than from arbitrary goroutines.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>3. Backend close/read-loop lifecycle needs hardening</b></span></h2>
+<p class="p3"><span class="s1">The POSIX backend closes a </span><span class="s4">stop</span><span class="s1"> channel and sets it to nil, but the read loop can be blocked in </span><span class="s4">reader.Next()</span><span class="s1"> on stdin. Closing the stop channel does not interrupt that blocking read. </span></p>
+<p class="p4"><span class="s1">Windows has a similar pattern around </span><span class="s4">stop</span><span class="s1">, </span><span class="s4">reader.Next()</span><span class="s1">, and field mutation during </span><span class="s4">Close</span><span class="s1">. </span></p>
+<p class="p4"><span class="s1">Use </span><span class="s4">sync.Once</span><span class="s1"> for </span><span class="s4">Close</span><span class="s1">, avoid setting channels to nil while goroutines may still select on them, and make the read path cancellable. At minimum:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p7"><span class="s7">type</span><span class="s8"> </span><span class="s9">posixBackend</span><span class="s8"> </span><span class="s7">struct</span><span class="s8"> {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>closeOnce </span><span class="s10">sync</span><span class="s7">.</span><span class="s10">Once</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>stop <span class="Apple-converted-space">    </span></span><span class="s7">chan</span><span class="s9"> </span><span class="s7">struct</span><span class="s9">{}</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>done <span class="Apple-converted-space">    </span></span><span class="s7">chan</span><span class="s9"> </span><span class="s7">struct</span><span class="s9">{}</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Then </span><span class="s4">Close</span><span class="s1"> should signal, restore terminal state, and optionally wait briefly for </span><span class="s4">done</span><span class="s1">. If the goroutine cannot be interrupted safely, document that limitation and keep the state mutation race-free.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>4. The event queue silently drops events</b></span></h2>
+<p class="p3"><span class="s4">drivers.Queue</span><span class="s1"> has a hard cap of 64, and </span><span class="s4">Put</span><span class="s1"> silently returns false when full. </span></p>
+<p class="p4"><span class="s1">That matches old Pascal semantics, but modern async terminal output, paste, resize, animation, mouse, and synthetic commands make silent loss nasty. At least check </span><span class="s4">Put</span><span class="s1"> in app-level code and expose a hook/counter:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s7">if</span><span class="s9"> </span><span class="s7">!</span><span class="s10">p</span><span class="s7">.</span><span class="s9">queue</span><span class="s7">.</span><span class="s9">Put(</span><span class="s10">e</span><span class="s9">) {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span></span><span class="s10">p</span><span class="s7">.</span><span class="s9">droppedEvents</span><span class="s7">.</span><span class="s9">Add(</span><span class="s11">1</span><span class="s9">)</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Better policy:</span></p>
+<table cellspacing="0" cellpadding="0" class="t1">
+  <tbody>
+    <tr>
+      <td valign="bottom" class="td1">
+        <p class="p14"><span class="s1"><b>Event type</b></span></p>
+      </td>
+      <td valign="bottom" class="td2">
+        <p class="p14"><span class="s1"><b>Overflow behavior</b></span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td3">
+        <p class="p15"><span class="s1">Resize</span></p>
+      </td>
+      <td valign="baseline" class="td4">
+        <p class="p15"><span class="s1">coalesce, keep latest</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td3">
+        <p class="p15"><span class="s1">Mouse move</span></p>
+      </td>
+      <td valign="baseline" class="td4">
+        <p class="p15"><span class="s1">drop/coalesce</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td3">
+        <p class="p15"><span class="s1">Key/paste/command</span></p>
+      </td>
+      <td valign="baseline" class="td4">
+        <p class="p15"><span class="s1">do not silently drop</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td5">
+        <p class="p15"><span class="s1">Wake/dirty</span></p>
+      </td>
+      <td valign="baseline" class="td6">
+        <p class="p15"><span class="s1">coalesce</span></p>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p class="p3"><span class="s1">This is especially important because bracketed paste may arrive as a single event with large payload, while high-rate mouse/resize traffic can fill the queue around it.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>5. CI/status checks appear absent or not wired</b></span></h2>
+<p class="p3"><span class="s1">I did not find common workflow files at </span><span class="s4">.github/workflows/ci.yml</span><span class="s1"> or </span><span class="s4">.github/workflows/go.yml</span><span class="s1">, and the latest commit had no combined statuses or workflow runs visible through the connector. The project docs do list expected local commands: </span><span class="s4">go build ./...</span><span class="s1">, </span><span class="s4">go test ./...</span><span class="s1">, </span><span class="s4">go vet ./...</span><span class="s1">, and cross-build sanity checks. </span></p>
+<p class="p4"><span class="s1">Add GitHub Actions immediately:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">name: ci</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">on:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">  </span>push:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">  </span>pull_request:</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">jobs:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">  </span>test:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">    </span>strategy:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">      </span>matrix:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">        </span>os: [ubuntu-latest, macos-latest, windows-latest]</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">    </span>runs-on: ${{ matrix.os }}</span></p>
+<p class="p8"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">    </span>steps:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">      </span>- uses: actions/checkout@v4</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">      </span>- uses: actions/setup-go@v5</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">        </span>with:</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">          </span>go-version-file: go.mod</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">      </span>- run: go test ./...</span></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">      </span>- run: go vet ./...</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Then add a Linux-only race job for packages that do not require a real TTY:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9"><span class="Apple-converted-space">      </span>- run: go test -race ./pkg/fv/...</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Given the current design, the race detector is not optional. </span><span class="s6">🧨</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>P1 issues / important cleanup</b></span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>6. Global singleton state limits correctness and tests</b></span></h2>
+<p class="p3"><span class="s1">The framework has multiple process-global hooks/state containers:</span></p>
+<table cellspacing="0" cellpadding="0" class="t1">
+  <tbody>
+    <tr>
+      <td valign="bottom" class="td7">
+        <p class="p14"><span class="s1"><b>Area</b></span></p>
+      </td>
+      <td valign="bottom" class="td8">
+        <p class="p14"><span class="s1"><b>Current pattern</b></span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td9">
+        <p class="p15"><span class="s1">Event queue / pump / wait / dirty</span></p>
+      </td>
+      <td valign="baseline" class="td10">
+        <p class="p15"><span class="s1">globals in </span><span class="s12">views</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td9">
+        <p class="p15"><span class="s1">Root backend</span></p>
+      </td>
+      <td valign="baseline" class="td10">
+        <p class="p15"><span class="s1">global in </span><span class="s12">views</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td9">
+        <p class="p15"><span class="s1">Animation registry</span></p>
+      </td>
+      <td valign="baseline" class="td10">
+        <p class="p15"><span class="s1">global in </span><span class="s12">anim</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td9">
+        <p class="p15"><span class="s1">Active theme + onChange</span></p>
+      </td>
+      <td valign="baseline" class="td10">
+        <p class="p15"><span class="s1">global in </span><span class="s12">theme</span></p>
+      </td>
+    </tr>
+    <tr>
+      <td valign="baseline" class="td11">
+        <p class="p15"><span class="s1">Clipboard buffer/writer</span></p>
+      </td>
+      <td valign="baseline" class="td12">
+        <p class="p15"><span class="s1">global in </span><span class="s12">clipboard</span></p>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p class="p3"><span class="s1">These are visible in </span><span class="s4">views</span><span class="s1">, </span><span class="s4">anim</span><span class="s1">, </span><span class="s4">theme</span><span class="s1">, and </span><span class="s4">clipboard</span><span class="s1">.    </span></p>
+<p class="p4"><span class="s1">That is acceptable for a Turbo Vision style single-app runtime, but it will cause test bleed and makes multiple app instances impossible. I would not rewrite it immediately, but I would add:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s7">func</span><span class="s9"> </span><span class="s10">views</span><span class="s9">.ResetGlobalsForTest()</span></p>
+<p class="p10"><span class="s7">func</span><span class="s9"> </span><span class="s10">anim</span><span class="s9">.ResetForTest()</span></p>
+<p class="p10"><span class="s7">func</span><span class="s9"> </span><span class="s10">theme</span><span class="s9">.ResetForTest()</span></p>
+<p class="p10"><span class="s7">func</span><span class="s9"> </span><span class="s10">clipboard</span><span class="s9">.ResetForTest()</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Longer term: introduce a </span><span class="s4">Runtime</span><span class="s1"> or </span><span class="s4">Context</span><span class="s1"> owned by </span><span class="s4">Program</span><span class="s1">.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>7. </b></span><span class="s13">go.mod</span><span class="s1"><b> looks stale or incorrectly classified</b></span></h2>
+<p class="p16"><span class="s14">go.mod</span><span class="s15"> marks </span><span class="s14">creack/pty</span><span class="s15">, </span><span class="s14">x/image</span><span class="s15">, </span><span class="s14">x/sys</span><span class="s15">, and </span><span class="s14">x/term</span><span class="s15"> as indirect. </span></p>
+<p class="p17"><span class="s15">But the source directly imports </span><span class="s14">golang.org/x/sys/unix</span><span class="s15">, </span><span class="s14">golang.org/x/term</span><span class="s15">, </span><span class="s14">golang.org/x/sys/windows</span><span class="s15">, and </span><span class="s14">github.com/creack/pty</span><span class="s15">.   </span></p>
+<p class="p4"><span class="s1">Run:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">go mod tidy</span></p>
+<p class="p10"><span class="s9">go list </span><span class="s16">-deps</span><span class="s9"> ./...</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Directly imported module requirements should not remain </span><span class="s4">// indirect</span><span class="s1">. This is small, but it is a “repo hygiene” smell.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>8. CSV behavior and comments disagree</b></span></h2>
+<p class="p3"><span class="s4">CSVOptions.IncludeHeader</span><span class="s1"> is documented as “default true” for export, but the zero value is </span><span class="s4">false</span><span class="s1"> and </span><span class="s4">SaveCSV</span><span class="s1"> only writes headers when </span><span class="s4">opts.IncludeHeader</span><span class="s1"> is true. </span></p>
+<p class="p4"><span class="s1">Pick one:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p12"><span class="s9"><i>// Option A: zero value means no header.</i><i></i></span></p>
+<p class="p7"><span class="s9">IncludeHeader </span><span class="s8">bool</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">or:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p12"><span class="s9"><i>// Option B: use pointer/tri-state/options constructor.</i><i></i></span></p>
+<p class="p7"><span class="s7">func</span><span class="s8"> </span><span class="s9">DefaultCSVOptions</span><span class="s8">() </span><span class="s9">CSVOptions</span><span class="s8"> {</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s7">return</span><span class="s8"> </span><span class="s9">CSVOptions</span><span class="s8">{</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s10">Delimiter</span><span class="s9">: <span class="Apple-converted-space">    </span></span><span class="s17">','</span><span class="s9">,</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s10">LineEnd</span><span class="s9">: <span class="Apple-converted-space">      </span></span><span class="s17">"\r\n"</span><span class="s9">,</span></p>
+<p class="p7"><span class="s8"><span class="Apple-tab-span">	</span><span class="Apple-tab-span">	</span></span><span class="s9">IncludeHeader</span><span class="s8">: </span><span class="s11">true</span><span class="s8">,</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>}</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Also: </span><span class="s4">parseAllCSV</span><span class="s1"> appears to accept EOF inside a quoted field instead of reporting malformed CSV. If this is meant to be RFC-4180-ish, malformed input should be an error. And the </span><span class="s4">errors.New("placeholder")</span><span class="s1"> compile sentinel should go. </span></p>
+<p class="p4"><span class="s1">Unless you need custom behavior, strongly consider using Go’s </span><span class="s4">encoding/csv</span><span class="s1">.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>9. Terminal input parser docs and behavior diverge</b></span></h2>
+<p class="p3"><span class="s1">The reader comment says ESC followed by nothing for ~50ms becomes bare Esc. The implementation emits bare Esc immediately when only ESC is available. </span></p>
+<p class="p4"><span class="s1">That is a meaningful UX decision. It affects Alt-key sequences on slower terminals or weird transports.</span></p>
+<p class="p4"><span class="s1">Either update the comment or implement the timeout/coalescing behavior. Do not leave this inconsistent.</span></p>
+<p class="p4"><span class="s1">Also add a cap for bracketed paste accumulation. The paste buffer grows until </span><span class="s4">ESC[201~</span><span class="s1">; a malicious or accidental huge paste can allocate heavily. </span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>10. </b></span><span class="s13">StringGrid</span><span class="s1"><b> has some API footguns</b></span></h2>
+<p class="p3"><span class="s4">StringGrid.New</span><span class="s1"> unconditionally sets every column visible. That means callers cannot express “initially hidden column” with </span><span class="s4">Column{Visible:false}</span><span class="s1"> because false is also the zero-value default. </span></p>
+<p class="p4"><span class="s1">Better options:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p9"><span class="s9">type</span><span class="s8"> </span><span class="s10">Column</span><span class="s8"> </span><span class="s9">struct</span><span class="s8"> {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>Visible </span><span class="s7">*</span><span class="s10">bool</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">or:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p9"><span class="s9">type</span><span class="s8"> </span><span class="s10">Column</span><span class="s8"> </span><span class="s9">struct</span><span class="s8"> {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>Hidden </span><span class="s10">bool</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s4">Hidden bool</span><span class="s1"> is probably cleaner because zero value then means visible.</span></p>
+<p class="p4"><span class="s1">Also, the grid filter is explicitly ASCII-only. That is not insane for a quick filter, but the rest of the framework takes Unicode seriously, so it is inconsistent. </span></p>
+<p class="p4"><span class="s1">For German customer data, ASCII-only filtering will eventually annoy someone named </span><span class="s4">Müller</span><span class="s1">.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>11. Flush errors are ignored or committed too early</b></span></h2>
+<p class="p3"><span class="s4">Program.idle()</span><span class="s1"> ignores backend flush errors:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s10">_</span><span class="s9"> </span><span class="s7">=</span><span class="s9"> </span><span class="s10">p</span><span class="s7">.</span><span class="s9">backend</span><span class="s7">.</span><span class="s9">Flush()</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">The backend </span><span class="s4">Flush</span><span class="s1"> implementations then commit the cell buffer after attempting to write.   </span></p>
+<p class="p4"><span class="s1">For an interactive TUI, ignoring transient write errors may be survivable. But committing the buffer after a failed or partial write makes the internal “front buffer” lie. I would change </span><span class="s4">Flush</span><span class="s1"> to only </span><span class="s4">commit()</span><span class="s1"> after successful write.</span></p>
+<p class="p4"><span class="s1">At app level, expose:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p7"><span class="s9">OnBackendError </span><span class="s7">func</span><span class="s8">(</span><span class="s9">error</span><span class="s8">)</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">so hosts can log or quit cleanly.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Architecture assessment</b></span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>View tree</b></span></h2>
+<p class="p3"><span class="s1">The </span><span class="s4">View</span><span class="s1">/</span><span class="s4">Base</span><span class="s1">/</span><span class="s4">Group</span><span class="s1"> model is coherent, but the </span><span class="s4">SetSelf</span><span class="s1"> invariant is brittle. The quickstart correctly calls this out as a common gotcha. </span></p>
+<p class="p4"><span class="s1">Add tests that instantiate every exported widget constructor and assert:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s7">if</span><span class="s9"> </span><span class="s10">v</span><span class="s7">.</span><span class="s9">BaseView()</span><span class="s7">.</span><span class="s9">Self() </span><span class="s7">!=</span><span class="s9"> </span><span class="s10">v</span><span class="s9"> {</span></p>
+<p class="p11"><span class="s8"><span class="Apple-tab-span">	</span></span><span class="s10">t</span><span class="s7">.</span><span class="s8">Fatalf(</span><span class="s9">"%T did not call SetSelf"</span><span class="s8">, </span><span class="s10">v</span><span class="s8">)</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">This catches the most common future regression.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Event routing</b></span></h2>
+<p class="p3"><span class="s4">Group.HandleEvent</span><span class="s1"> is understandable and close to the old Turbo Vision model: mouse by topmost hit, keyboard preprocess/focus/postprocess, command broadcast. </span></p>
+<p class="p4"><span class="s1">One small issue: </span><span class="s4">Focus</span><span class="s1"> and </span><span class="s4">MakeFirst</span><span class="s1"> change visible state but do not call </span><span class="s4">MarkDirty</span><span class="s1">. In many paths the caller/event loop dirties afterward, but programmatic focus/raise may not repaint. Either document that callers must mark dirty or mark dirty inside these methods.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Terminal emulator</b></span></h2>
+<p class="p3"><span class="s1">The terminal widget is useful and already handles PTY output, raw key routing, scrollback, search, selection, mouse forwarding, title/CWD OSC callbacks, and lifecycle hooks. </span></p>
+<p class="p4"><span class="s1">This package deserves its own quality gate:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">go test ./pkg/fv/widgets/terminal</span></p>
+<p class="p10"><span class="s9">go test </span><span class="s16">-race</span><span class="s9"> ./pkg/fv/widgets/terminal</span></p>
+<p class="p10"><span class="s9">go test </span><span class="s16">-fuzz</span><span class="s7">=</span><span class="s9">Fuzz ./pkg/fv/widgets/terminal</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Fuzz the VT parser and the outer terminal reader. That is where malformed escape sequences will live.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>SIXEL/raw terminal output</b></span></h2>
+<p class="p3"><span class="s1">The </span><span class="s4">PreFlusher</span><span class="s1"> design is good. The explicit </span><span class="s4">MarkClean</span><span class="s1"> / </span><span class="s4">Invalidate</span><span class="s1"> primitives are ugly but correct for persistent pixel graphics in terminals. </span></p>
+<p class="p4"><span class="s1">Keep this documented. Future maintainers will break it if they treat raw SIXEL like ordinary cells.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Security / robustness notes </b></span><span class="s3">🛡️</span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>OSC 52 clipboard</b></span></h2>
+<p class="p3"><span class="s4">clipboard.SetText</span><span class="s1"> pushes base64 text into OSC 52 when a writer is installed. </span></p>
+<p class="p4"><span class="s1">That is convenient, but terminal clipboard access is security-sensitive. Add:</span></p>
+<p class="p6"><span class="s1"></span><br></p>
+<p class="p7"><span class="s7">type</span><span class="s8"> </span><span class="s9">ClipboardPolicy</span><span class="s8"> </span><span class="s7">struct</span><span class="s8"> {</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>EnableOSC52 </span><span class="s10">bool</span></p>
+<p class="p10"><span class="s9"><span class="Apple-tab-span">	</span>MaxBytes<span class="Apple-converted-space">    </span></span><span class="s10">int</span></p>
+<p class="p10"><span class="s9">}</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">and default to a sane max size. Large selections should not generate unbounded escape sequences.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>OSC title/CWD data</b></span></h2>
+<p class="p3"><span class="s1">Terminal </span><span class="s4">OnTitle</span><span class="s1"> and </span><span class="s4">OnCWDChange</span><span class="s1"> are driven by child process escape sequences. </span></p>
+<p class="p4"><span class="s1">Bound lengths and sanitize control characters before putting these into window titles/status bars.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Windows command-line quoting</b></span></h2>
+<p class="p3"><span class="s4">windowsCommandLine</span><span class="s1"> explicitly skips some corner cases, including trailing backslash before a quote. </span></p>
+<p class="p4"><span class="s1">For shells/editors it may be okay, but this is exactly the kind of thing that breaks in customer paths like:</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">C:\Program Files\Foo\</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Use a proven Windows argument escaping function or implement the full </span><span class="s4">CommandLineToArgvW</span><span class="s1"> inverse rules.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Build, release, and docs</b></span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>README / quickstart</b></span></h2>
+<p class="p3"><span class="s1">The README is good and practical. It explains what is in the box, how to run the demo, and the architecture. </span></p>
+<p class="p4"><span class="s1">The quickstart is also useful and candid about traps like </span><span class="s4">SetSelf</span><span class="s1">, in-place initializers, event clearing, and </span><span class="s4">MarkDirty</span><span class="s1"> from goroutines. </span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Move durable engineering docs out of </b></span><span class="s13">CLAUDE.md</span></h2>
+<p class="p3"><span class="s4">CLAUDE.md</span><span class="s1"> contains excellent engineering notes: build commands, architecture, dirty/wake pipeline, SIXEL handling, conventions, and runtime gotchas. </span></p>
+<p class="p4"><span class="s1">But that file is agent-specific. Put the durable parts into:</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p10"><span class="s9">docs/ARCHITECTURE.md</span></p>
+<p class="p10"><span class="s9">docs/CONTRIBUTING.md</span></p>
+<p class="p10"><span class="s9">docs/TERMINAL.md</span></p>
+<p class="p10"><span class="s9">docs/SIXEL.md</span></p>
+<p class="p13"><span class="s1"></span><br></p>
+<p class="p3"><span class="s1">Leave </span><span class="s4">CLAUDE.md</span><span class="s1"> as a pointer.</span></p>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>License clarity</b></span></h2>
+<p class="p3"><span class="s1">The README says the project inherits the Free Vision / Free Pascal license and points to </span><span class="s4">COPYING.FPC</span><span class="s1"> and </span><span class="s4">COPYING.txt</span><span class="s1">. </span></p>
+<p class="p4"><span class="s4">COPYING.FPC</span><span class="s1"> contains the FPC library license special exception, while </span><span class="s4">COPYING.txt</span><span class="s1"> is LGPL 2.1.  </span></p>
+<p class="p4"><span class="s1">Add a short </span><span class="s4">LICENSE.md</span><span class="s1"> summary with SPDX identifiers. For a Go library, downstream users need to know quickly what obligations apply.</span></p>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Suggested priority plan</b></span></h1>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>P0 — before calling it stable</b></span></h2>
+<ol class="ol1">
+  <li class="li18"><span class="s18"><b></b></span><span class="s1"><b>Fix Windows env block</b></span><span class="s15"> in </span><span class="s4">pty_windows.go</span><span class="s15">.</span></li>
+  <li class="li3"><span class="s19"><b></b></span><span class="s5"><b>Run </b></span><span class="s4">go test -race</span><span class="s1"> and fix dirty/callback races.</span></li>
+  <li class="li18"><span class="s18"><b></b></span><span class="s1"><b>Make backend </b></span><span class="s4">Close</span><span class="s1"><b> idempotent and goroutine-safe</b></span><span class="s15">.</span></li>
+  <li class="li3"><span class="s19"><b></b></span><span class="s5"><b>Add CI</b></span><span class="s1"> for Linux/macOS/Windows.</span></li>
+  <li class="li3"><span class="s19"><b></b></span><span class="s5"><b>Run </b></span><span class="s4">go mod tidy</span><span class="s1"> and fix direct/indirect dependency classification.</span></li>
+</ol>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>P1 — next hardening pass</b></span></h2>
+<ol class="ol1">
+  <li class="li3"><span class="s18"></span><span class="s1">Replace silent queue drops with explicit policy.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Add fuzz tests for terminal reader and VT parser.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Cap bracketed paste and OSC 52 payload sizes.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Fix CSV defaults/errors or use </span><span class="s4">encoding/csv</span><span class="s1">.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Fix </span><span class="s4">StringGrid</span><span class="s1"> visibility API and Unicode filtering.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Stop ignoring backend flush errors.</span></li>
+</ol>
+<h2 style="margin: 0.0px 0.0px 4.0px 0.0px; font: 20.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>P2 — maintainability</b></span></h2>
+<ol class="ol1">
+  <li class="li3"><span class="s18"></span><span class="s1">Add </span><span class="s4">ResetForTest</span><span class="s1"> hooks for globals.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Move architecture notes from </span><span class="s4">CLAUDE.md</span><span class="s1"> into normal docs.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Add constructor invariant tests for </span><span class="s4">SetSelf</span><span class="s1">.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Add benchmarks for cell diff flushing, grid filtering/sorting, markdown rendering, and terminal parser throughput.</span></li>
+  <li class="li3"><span class="s18"></span><span class="s1">Tag releases once the API stabilizes.</span></li>
+</ol>
+<p class="p5"><span class="s1"></span><br></p>
+<h1 style="margin: 0.0px 0.0px 8.0px 0.0px; font: 24.0px '.SF NS'; color: #0c0c0c; -webkit-text-stroke: #0c0c0c"><span class="s1"><b>Bottom line</b></span></h1>
+<p class="p3"><span class="s1">This is </span><span class="s5"><b>not</b></span><span class="s1"> a toy anymore. It is already a serious terminal UI framework skeleton with a large widget surface and genuinely advanced terminal features. The core danger is that the framework has crossed into “real async runtime” territory while still carrying several single-threaded/global-state assumptions from the Turbo Vision lineage.</span></p>
+<p class="p4"><span class="s1">Fix the Windows ConPTY env bug, put the dirty/event/callback model under the race detector, add CI, and harden lifecycle/queue semantics. After that, the project becomes much more credible as a reusable Go library. </span><span class="s6">🚀</span></p>
+<p class="p19"><span class="s1"></span><br></p>
+<p class="p19"><span class="s1"></span><br></p>
+<p class="p5"><span class="s1"></span><br></p>
+<p class="p20"><span class="s1"></span><br></p>
+<p class="p20"><span class="s1"></span><br></p>
+<p class="p20"><span class="s1"></span><br></p>
+<p class="p20"><span class="s1"></span><br></p>
+<p class="p20"><span class="s1"></span><br></p>
+<p class="p20"><span class="s1"></span><br></p>
+<p class="p21"><span class="s1"></span><br></p>
+<p class="p5"><span class="s1"></span><br></p>
+<p class="p5"><span class="s1"></span><br></p>
+</body>
+</html>

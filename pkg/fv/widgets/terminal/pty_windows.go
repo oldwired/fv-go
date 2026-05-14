@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
-	"syscall"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -108,14 +109,20 @@ func startPTY(name string, args []string, env []string, dir string, cols, rows i
 		return nil, err
 	}
 	var envBlock *uint16
+	// envBlockBuf holds the backing storage for envBlock. Must remain
+	// in scope until CreateProcess returns — the Win32 API reads from
+	// the pointer during process creation, and Go's GC must not move
+	// or collect this slice before then.
+	var envBlockBuf []uint16
 	if len(env) > 0 {
-		envBlock, err = utf16EnvBlock(env)
+		envBlockBuf, err = utf16EnvBlock(env)
 		if err != nil {
 			windows.ClosePseudoConsole(hPC)
 			windows.CloseHandle(stdinParentW)
 			windows.CloseHandle(stdoutParentR)
 			return nil, err
 		}
+		envBlock = &envBlockBuf[0]
 	}
 
 	var dirP *uint16
@@ -131,14 +138,19 @@ func startPTY(name string, args []string, env []string, dir string, cols, rows i
 
 	var pi windows.ProcessInformation
 	flags := uint32(windows.EXTENDED_STARTUPINFO_PRESENT | windows.CREATE_UNICODE_ENVIRONMENT)
-	if err := windows.CreateProcess(
+	cpErr := windows.CreateProcess(
 		nil, cmdLineP, nil, nil, false,
 		flags, envBlock, dirP, &si.StartupInfo, &pi,
-	); err != nil {
+	)
+	// Keep envBlockBuf alive across the CreateProcess call. Without
+	// this, an aggressive optimizer could deallocate the slice while
+	// the kernel is still reading the environment block.
+	runtime.KeepAlive(envBlockBuf)
+	if cpErr != nil {
 		windows.ClosePseudoConsole(hPC)
 		windows.CloseHandle(stdinParentW)
 		windows.CloseHandle(stdoutParentR)
-		return nil, fmt.Errorf("CreateProcess: %w", err)
+		return nil, fmt.Errorf("CreateProcess: %w", cpErr)
 	}
 
 	// Stuff the new process into a JobObject set to terminate every
@@ -240,39 +252,97 @@ func (p *ptyHandle) Wait() error {
 	return nil
 }
 
+// quoteWindowsArg quotes a single argument into the form
+// CommandLineToArgvW will round-trip. The Win32 rules (per MSDN
+// "Parsing C++ Command-Line Arguments"):
+//
+//   - 2n backslashes followed by a quotation mark produce n
+//     backslashes followed by a begin/end quote.
+//   - 2n+1 backslashes followed by a quotation mark produce n
+//     backslashes followed by a literal quotation mark.
+//   - n backslashes not followed by a quotation mark produce n
+//     literal backslashes.
+//
+// Naive `strings.ReplaceAll(a, `"`, `\"`)` quoting was the previous
+// implementation; it failed on paths like `C:\Program Files\Foo\`
+// because the trailing backslash before the closing quote would be
+// re-interpreted as escaping the quote, dropping the closing wrapper.
+func quoteWindowsArg(a string) string {
+	if a == "" {
+		return `""`
+	}
+	// Fast path: nothing special.
+	if !strings.ContainsAny(a, ` \t"`+"\n\v") {
+		return a
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	backslashes := 0
+	for i := 0; i < len(a); i++ {
+		c := a[i]
+		switch c {
+		case '\\':
+			backslashes++
+		case '"':
+			// Double every preceding backslash plus this one, then
+			// emit the escaped quote.
+			for j := 0; j < 2*backslashes+1; j++ {
+				b.WriteByte('\\')
+			}
+			b.WriteByte('"')
+			backslashes = 0
+		default:
+			for j := 0; j < backslashes; j++ {
+				b.WriteByte('\\')
+			}
+			backslashes = 0
+			b.WriteByte(c)
+		}
+	}
+	// Trailing backslashes need to be doubled so the closing quote
+	// isn't accidentally escaped.
+	for j := 0; j < 2*backslashes; j++ {
+		b.WriteByte('\\')
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 // windowsCommandLine quotes name + args into the single-string form
-// CreateProcessW expects. Each token gets wrapped in quotes and inner
-// quotes escaped with backslash — the standard CommandLineToArgvW
-// dance. Good enough for the launchers we'd actually run (shells,
-// editors); skip the corner cases (embedded null, trailing backslash
-// before a quote) the package doesn't deal in.
+// CreateProcessW expects, using the full CommandLineToArgvW inverse so
+// trailing-backslash paths and embedded quotes round-trip correctly.
 func windowsCommandLine(name string, args []string) string {
 	var b strings.Builder
-	b.WriteString(`"`)
-	b.WriteString(strings.ReplaceAll(name, `"`, `\"`))
-	b.WriteString(`"`)
+	b.WriteString(quoteWindowsArg(name))
 	for _, a := range args {
 		b.WriteByte(' ')
-		b.WriteString(`"`)
-		b.WriteString(strings.ReplaceAll(a, `"`, `\"`))
-		b.WriteString(`"`)
+		b.WriteString(quoteWindowsArg(a))
 	}
 	return b.String()
 }
 
-// utf16EnvBlock turns a slice of "K=V" strings into a UTF-16 block
-// with a double-null terminator, suitable for CreateProcessW's
-// lpEnvironment parameter (with CREATE_UNICODE_ENVIRONMENT).
-func utf16EnvBlock(env []string) (*uint16, error) {
-	var sb strings.Builder
+// utf16EnvBlock turns a slice of "K=V" strings into a UTF-16 environment
+// block (each entry NUL-terminated, the block as a whole double-NUL
+// terminated) suitable for CreateProcessW's lpEnvironment parameter
+// (with CREATE_UNICODE_ENVIRONMENT). Returns the backing slice — the
+// caller must keep it alive (via runtime.KeepAlive) until CreateProcess
+// returns. NUL bytes inside an entry are rejected; without this guard
+// the syscall would silently truncate the block.
+//
+// The earlier implementation built one large NUL-joined string and
+// called syscall.UTF16FromString on it, which stops at the first NUL
+// — so only the first env var was actually passed to the child. That
+// was the headline ConPTY bug in the project review.
+func utf16EnvBlock(env []string) ([]uint16, error) {
+	var block []uint16
 	for _, e := range env {
-		sb.WriteString(e)
-		sb.WriteByte(0)
+		if strings.IndexByte(e, 0) >= 0 {
+			return nil, errors.New("env entry contains NUL byte")
+		}
+		block = append(block, utf16.Encode([]rune(e))...)
+		block = append(block, 0)
 	}
-	sb.WriteByte(0)
-	utf16, err := syscall.UTF16FromString(sb.String())
-	if err != nil {
-		return nil, err
-	}
-	return &utf16[0], nil
+	// Final terminator: empty entry signals end-of-block.
+	block = append(block, 0)
+	return block, nil
 }

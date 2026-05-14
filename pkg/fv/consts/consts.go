@@ -115,7 +115,22 @@ const (
 	// host can pop a jump-to-line dialog. Tied to the editor that
 	// fired it via ev.InfoPtr.
 	CmEditorGoto uint16 = 63
+
+	// CmUserCallback delivers a func() onto the UI goroutine via
+	// Program.PostEvent (see Program.CallSoon). InfoPtr is the func.
+	// The main loop intercepts this command before any HandleEvent
+	// or OnCommand dispatch so user code never observes it.
+	//
+	// 0xFE00..0xFEFF is reserved for framework-internal commands —
+	// do NOT allocate user-space commands in this range.
+	CmUserCallback uint16 = 0xFE00
 )
+
+// PasteTruncated, when set on drivers.Event.InfoByte for a CmPaste
+// command, signals that the paste payload was truncated to fit the
+// reader's bracketed-paste size cap. Receivers that don't care can
+// ignore the byte and read InfoPtr.(string) as usual.
+const PasteTruncated byte = 1
 
 // Help-context IDs used by the status line and dialogs.
 const (

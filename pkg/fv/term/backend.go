@@ -25,6 +25,11 @@ type Event struct {
 	Mouse  MouseState
 	Resize geom.Point // Cols/Rows (X=cols, Y=rows)
 	Paste  string     // for PasteEvent
+
+	// Truncated, when Kind is EventPaste, signals that the paste
+	// payload was cut off at the bracketed-paste size cap. Hosts
+	// that care can surface this; most can ignore it.
+	Truncated bool
 }
 
 // EventKind discriminates the Event union.

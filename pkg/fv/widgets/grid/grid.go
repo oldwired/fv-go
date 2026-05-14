@@ -12,6 +12,7 @@ package grid
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/oldwired/fv-go/pkg/fv/clipboard"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
@@ -42,15 +43,20 @@ const (
 // optional Compare hook is used for typed sorts (e.g. numeric); when
 // nil, the grid falls back to lexicographic string compare.
 type Column struct {
-	Title        string
-	Width        int
-	MinWidth     int // 0 = no lower clamp on resize / auto-fit
-	MaxWidth     int // 0 = no upper clamp
-	Align        Alignment
-	Color        uint16 // per-column override; 0 = use the grid default
-	ReadOnly     bool
-	Sortable     bool
-	Visible      bool   // hidden columns stay in data + filters but don't render
+	Title    string
+	Width    int
+	MinWidth int // 0 = no lower clamp on resize / auto-fit
+	MaxWidth int // 0 = no upper clamp
+	Align    Alignment
+	Color    uint16 // per-column override; 0 = use the grid default
+	ReadOnly bool
+	Sortable bool
+	// Hidden, when true, suppresses rendering / hit-testing for this
+	// column while keeping it in the data + filters. Zero value
+	// (Column{}) is visible — flipping the sense from a previous
+	// Visible bool removes the New()-time "force every column on"
+	// kludge that prevented constructing initially-hidden columns.
+	Hidden       bool
 	DefaultValue string // used by AddRow() / SetRowCount() to fill new cells
 	Validator    validators.Validator
 	Compare      func(a, b string) int // typed comparison; nil = string compare
@@ -207,14 +213,13 @@ type StringGrid struct {
 // behavior toggles default to "on" — turn the ones you don't want off
 // individually rather than passing a flags blob.
 func New(bounds geom.Rect, cols []Column, h, v *views.ScrollBar) *StringGrid {
-	// Per-column defaults: sortable + visible. Callers may have set
-	// Visible=true explicitly, but the zero value of a freshly-built
-	// Column is false, so default it on here.
+	// Per-column defaults: sortable. Hidden defaults to false (visible)
+	// from the zero value — callers who want a column initially hidden
+	// pass Column{Hidden: true}.
 	for i := range cols {
 		if !cols[i].Sortable && cols[i].Title != "" {
 			cols[i].Sortable = true
 		}
-		cols[i].Visible = true
 	}
 	g := &StringGrid{
 		Base:                views.NewBase(bounds),
@@ -595,43 +600,21 @@ func (g *StringGrid) ClearFilters() {
 	g.markDirty()
 }
 
-// containsFold is case-insensitive ASCII substring check. We don't
-// pull in strings.EqualFold-style locale rules; for the column filter
-// this is exactly what users expect.
+// containsFold is a case-insensitive Unicode-aware substring check.
+// `Müller` matches `mü`; `ÄSI` matches `äs`. The previous ASCII-only
+// implementation silently failed on non-English data — the rest of
+// the framework handles Unicode properly, so the filter shouldn't be
+// the one place it doesn't.
 func containsFold(s, sub string) bool {
 	if sub == "" {
 		return true
 	}
-	ls := lowerASCII(s)
-	lt := lowerASCII(sub)
-	return contains(ls, lt)
-}
-
-func lowerASCII(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + 32
-		}
-	}
-	return string(b)
-}
-
-func contains(s, sub string) bool {
-	if len(sub) > len(s) {
-		return false
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }
 
 // colVisible reports whether the column at idx renders / hit-tests.
 func (g *StringGrid) colVisible(c int) bool {
-	return c >= 0 && c < len(g.Columns) && g.Columns[c].Visible
+	return c >= 0 && c < len(g.Columns) && !g.Columns[c].Hidden
 }
 
 // columnX returns the screen X position of column c relative to the
@@ -644,7 +627,7 @@ func (g *StringGrid) columnX(c int) int {
 	}
 	x := 0
 	for i := 0; i < g.FixedCols && i < len(g.Columns) && i < c; i++ {
-		if g.Columns[i].Visible {
+		if !g.Columns[i].Hidden {
 			x += g.Columns[i].Width
 		}
 	}
@@ -656,7 +639,7 @@ func (g *StringGrid) columnX(c int) int {
 		start = g.FixedCols
 	}
 	for i := start; i < c && i < len(g.Columns); i++ {
-		if g.Columns[i].Visible {
+		if !g.Columns[i].Hidden {
 			x += g.Columns[i].Width
 		}
 	}
@@ -669,7 +652,7 @@ func (g *StringGrid) columnX(c int) int {
 func (g *StringGrid) columnAt(x int) int {
 	cur := 0
 	for i := 0; i < g.FixedCols && i < len(g.Columns); i++ {
-		if !g.Columns[i].Visible {
+		if g.Columns[i].Hidden {
 			continue
 		}
 		w := g.Columns[i].Width
@@ -683,7 +666,7 @@ func (g *StringGrid) columnAt(x int) int {
 		start = g.FixedCols
 	}
 	for i := start; i < len(g.Columns); i++ {
-		if !g.Columns[i].Visible {
+		if g.Columns[i].Hidden {
 			continue
 		}
 		w := g.Columns[i].Width
@@ -704,7 +687,7 @@ func (g *StringGrid) nextVisibleCol(start, dir int) int {
 	i := start
 	for steps := 0; steps < len(g.Columns); steps++ {
 		i = (i + dir + len(g.Columns)) % len(g.Columns)
-		if g.Columns[i].Visible {
+		if !g.Columns[i].Hidden {
 			return i
 		}
 	}
@@ -770,7 +753,7 @@ func (g *StringGrid) moveTo(col, row int, extend bool) {
 	}
 	// Skip past invisible columns. If everything's invisible (edge
 	// case), fall through and keep col as-is.
-	if c := len(g.Columns); c > 0 && !g.Columns[col].Visible {
+	if c := len(g.Columns); c > 0 && g.Columns[col].Hidden {
 		if next := g.nextVisibleCol(col-1, 1); next >= 0 {
 			col = next
 		}
@@ -1094,7 +1077,7 @@ func subscript(n int) string {
 func (g *StringGrid) drawCellSeparators(buf screen.DrawBuffer, attr uint16, glyph string) {
 	x := 0
 	for c := 0; c < g.FixedCols && c < len(g.Columns); c++ {
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		w := g.Columns[c].Width
@@ -1108,7 +1091,7 @@ func (g *StringGrid) drawCellSeparators(buf screen.DrawBuffer, attr uint16, glyp
 		start = g.FixedCols
 	}
 	for c := start; c+1 < len(g.Columns); c++ {
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		w := g.Columns[c].Width
@@ -1143,7 +1126,7 @@ func (g *StringGrid) drawCellsRow(buf screen.DrawBuffer, attr uint16, divAttr ui
 	}
 	x := 0
 	for c := 0; c < g.FixedCols && c < len(g.Columns); c++ {
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		x = paint(c, x)
@@ -1156,7 +1139,7 @@ func (g *StringGrid) drawCellsRow(buf screen.DrawBuffer, attr uint16, divAttr ui
 		start = g.FixedCols
 	}
 	for c := start; c < len(g.Columns); c++ {
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		x = paint(c, x)
@@ -1231,7 +1214,7 @@ func (g *StringGrid) drawCellsRowAt(buf screen.DrawBuffer, visRow int, cellColor
 	}
 	x := 0
 	for c := 0; c < g.FixedCols && c < len(g.Columns); c++ {
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		paintCol(c, x)
@@ -1245,7 +1228,7 @@ func (g *StringGrid) drawCellsRowAt(buf screen.DrawBuffer, visRow int, cellColor
 		start = g.FixedCols
 	}
 	for c := start; c < len(g.Columns); c++ {
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		paintCol(c, x)
@@ -1816,7 +1799,7 @@ func (g *StringGrid) AutoFitColumn(col int) {
 // AutoFitAll auto-fits every visible column. Convenience wrapper.
 func (g *StringGrid) AutoFitAll() {
 	for i := range g.Columns {
-		if !g.Columns[i].Visible {
+		if g.Columns[i].Hidden {
 			continue
 		}
 		g.AutoFitColumn(i)
@@ -1843,7 +1826,7 @@ func (g *StringGrid) ToggleColumnVisible(col int) {
 	if col < 0 || col >= len(g.Columns) {
 		return
 	}
-	g.Columns[col].Visible = !g.Columns[col].Visible
+	g.Columns[col].Hidden = !g.Columns[col].Hidden
 	g.markDirty()
 }
 
@@ -1872,7 +1855,7 @@ func (g *StringGrid) FindNext(dir int) bool {
 		idx := ((start+dir*i)%total + total) % total
 		r := idx / cols
 		c := idx % cols
-		if !g.Columns[c].Visible {
+		if g.Columns[c].Hidden {
 			continue
 		}
 		if containsFold(g.Cell(r, c), g.FindText) {
@@ -1944,7 +1927,7 @@ func (g *StringGrid) PasteClipboard() {
 			if c >= len(g.Columns) {
 				break
 			}
-			if !g.Columns[c].Visible {
+			if g.Columns[c].Hidden {
 				continue
 			}
 			if g.OnGetCell == nil {

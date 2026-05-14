@@ -1077,7 +1077,7 @@ func (p *parser) completeOSC() {
 	switch ps {
 	case "0", "1", "2":
 		if p.OnTitle != nil {
-			p.OnTitle(pt)
+			p.OnTitle(sanitizeOSCString(pt, 512))
 		}
 	case "7":
 		// OSC 7 — shell working directory. Format is file://host/path.
@@ -1096,9 +1096,46 @@ func (p *parser) completeOSC() {
 			cwd = decoded
 		}
 		if p.OnCWD != nil {
-			p.OnCWD(cwd)
+			p.OnCWD(sanitizeOSCString(cwd, 4096))
 		}
 	}
+}
+
+// truncateUTF8 chops s at a maxBytes byte boundary while preserving
+// rune integrity — `s[:max]` would slice mid-rune for multi-byte UTF-8.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	s = s[:maxBytes]
+	for !utf8.ValidString(s) && len(s) > 0 {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// sanitizeOSCString prepares an OSC-derived string for use in window
+// titles, status lines, or other UI surfaces. It:
+//
+//   - truncates to maxBytes on a rune-safe boundary, so a hostile
+//     OSC payload cannot blow up status-bar memory or layout.
+//   - strips C0 control codes (NUL/BEL/CR/LF/ESC/DEL) except TAB,
+//     so an attacker can't smuggle escape sequences through the
+//     title and have them executed when re-emitted to the terminal.
+//
+// Title cap (512 bytes) matches xterm's convention; CWD (4096) is
+// allowed to be longer because deeply nested project trees are
+// legitimate.
+func sanitizeOSCString(s string, maxBytes int) string {
+	s = truncateUTF8(s, maxBytes)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\t' || (r >= 0x20 && r != 0x7f) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // resetTerminal — RIS, full reset.

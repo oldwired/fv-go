@@ -16,7 +16,11 @@ import (
 //   - UTF-8 multi-byte sequences (decoded with the std lib once a
 //     complete sequence is available)
 //   - ESC followed by either:
-//   - nothing for ~50ms -> bare Esc
+//   - nothing in the scan buffer -> bare Esc emitted immediately.
+//     A blocking 50ms timeout would delay every Esc keypress, which
+//     hurts interactive use more than it helps Alt-prefix disambiguation.
+//     Apps that need Alt-prefix chord handling should re-coalesce on
+//     their own clock.
 //   - '[' (CSI) or 'O' (SS3) -> parse params + final byte
 //   - a printable char -> Alt-modified key
 //   - mouse: SGR 1006 ("\x1b[<b;x;y(M|m)") preferred, X10 fallback
@@ -54,6 +58,13 @@ func newReader(in io.Reader) *reader {
 // doubleClickWindow is how close in time two presses must be to count
 // as a double-click. Standard GUI choice; tcell uses 500ms.
 const doubleClickWindow = 400 * time.Millisecond
+
+// maxPasteBytes caps the bracketed-paste accumulator. A pathological
+// or malicious sender that opens ESC[200~ and never sends ESC[201~
+// would otherwise allocate unbounded memory. 4 MiB is well above any
+// realistic interactive paste; the truncation event tells hosts so
+// they can react.
+const maxPasteBytes = 4 << 20 // 4 MiB
 
 // Next blocks until the underlying reader yields bytes, then returns
 // every Event the parser can extract from what it has. Returns an error
@@ -99,6 +110,29 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 			payload := string(r.pasteBuf)
 			r.pasteBuf = r.pasteBuf[:0]
 			return Event{Kind: EventPaste, Paste: payload}, i + len(end), true
+		}
+		// Cap accumulation so a runaway or malicious sender can't
+		// allocate unbounded memory between ESC[200~ and ESC[201~.
+		// On overflow we synthesize an end-of-paste event with the
+		// Truncated flag set so the host can decide what to do
+		// (typically: warn, discard the rest until ESC[201~).
+		if len(r.pasteBuf)+len(r.scan) > maxPasteBytes {
+			take := maxPasteBytes - len(r.pasteBuf)
+			if take > 0 {
+				r.pasteBuf = append(r.pasteBuf, r.scan[:take]...)
+			}
+			r.paste = false
+			payload := string(r.pasteBuf)
+			r.pasteBuf = r.pasteBuf[:0]
+			// Consume what we took; the rest of r.scan stays in the
+			// buffer. The next parseOne pass will look for ESC[201~
+			// in the residual bytes (or treat them as regular input
+			// if no opening sequence followed).
+			consumed := take
+			if consumed < 0 {
+				consumed = 0
+			}
+			return Event{Kind: EventPaste, Paste: payload, Truncated: true}, consumed, true
 		}
 		r.pasteBuf = append(r.pasteBuf, r.scan...)
 		return Event{}, len(r.scan), true

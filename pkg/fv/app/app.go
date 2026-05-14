@@ -6,6 +6,7 @@
 package app
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/anim"
@@ -28,13 +29,30 @@ type Program struct {
 	StatusLine views.View
 	Desktop    *Desktop
 
-	backend   term.Backend
-	queue     *drivers.Queue
-	quit      bool
-	dirty     bool          // set when an event/anim/etc. has changed state and a redraw is owed
+	backend term.Backend
+	queue   *drivers.Queue
+	quit    bool
+	// dirty is set when an event/anim/etc. has changed state and a
+	// redraw is owed. atomic because async paths (PTY readers, anim
+	// tickers, host-installed goroutines via PostEvent/CallSoon) all
+	// flip it; the race detector flags any plain-bool variant.
+	dirty     atomic.Bool
 	waitTimer *time.Timer   // reused across waitOne() calls to skip per-wake allocation
 	wake      chan struct{} // signaled by MarkDirty from goroutines so waitOne returns
 	// without needing a fresh user keystroke (PTY output, async data, …).
+
+	// OnBackendError, if non-nil, is invoked when the term backend
+	// returns a non-nil error from Flush. Useful for logging transient
+	// write failures during an interactive session. Does NOT abort the
+	// main loop — host code that wants to quit on backend errors must
+	// call Quit() from the callback.
+	OnBackendError func(error)
+
+	// OnEventDropped, if non-nil, is invoked when the event queue is
+	// full and rejects an event (other than EvMouseMove, which drops
+	// silently as noise). Hosts can wire this to a counter / status
+	// line. Internal coalescing of CmResizeApp does NOT fire this.
+	OnEventDropped func(ev drivers.Event)
 
 	// OnCommand, if non-nil, is invoked for every EvCommand event the
 	// view tree didn't consume. Returning true marks the command as
@@ -79,7 +97,7 @@ func NewProgram(backend term.Backend) *Program {
 	views.SetPump(p.idle)
 	views.SetWait(p.waitOne)
 	views.SetMarkDirty(func() {
-		p.dirty = true
+		p.dirty.Store(true)
 		// Non-blocking nudge to wake waitOne if it's parked. We don't
 		// care about coalescing — a full buffer means a wake is
 		// already pending, which is exactly what we want.
@@ -93,6 +111,10 @@ func NewProgram(backend term.Backend) *Program {
 	// Wired here (not in the theme package) to keep the theme package
 	// free of any views dependency.
 	theme.SetOnChange(views.MarkDirty)
+	// Wire the scheduler so views.CallSoon delivers fn onto the UI
+	// goroutine. Without this, async callbacks fall through to the
+	// inline fallback in views.CallSoon (documented as bootstrap-only).
+	views.SetCallSoon(p.CallSoon)
 	return p
 }
 
@@ -172,7 +194,9 @@ func (p *Program) HandleEvent(ev *drivers.Event) {
 				Command: emit,
 				InfoInt: info,
 			}
-			p.queue.Put(cmd)
+			if !p.queue.Put(cmd) && p.OnEventDropped != nil {
+				p.OnEventDropped(cmd)
+			}
 			ev.What = consts.EvNothing
 			return
 		}
@@ -285,7 +309,7 @@ func (p *Program) Run() {
 		}()
 	}
 	p.State |= consts.SfActive | consts.SfVisible | consts.SfExposed
-	p.dirty = true // initial paint
+	p.dirty.Store(true) // initial paint
 	for !p.quit {
 		p.idle()
 		ev, ok := p.queue.Get()
@@ -301,18 +325,30 @@ func (p *Program) Run() {
 			if pt, ok := ev.InfoPtr.(geom.Point); ok {
 				p.ChangeBounds(geom.NewRect(0, 0, pt.X, pt.Y))
 			}
-			p.dirty = true
+			p.dirty.Store(true)
 			continue
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
 			if !p.acceptQuit() {
-				p.dirty = true
+				p.dirty.Store(true)
 				continue
 			}
 			return
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuit {
 			return
+		}
+		// CallSoon callback: invoke fn directly on the UI goroutine.
+		// Intercepted before HandleEvent so user OnCommand never sees
+		// this internal command. A panic here propagates up through
+		// Run() and hits the OnPanic recover above; no separate
+		// recover here on purpose.
+		if ev.What == consts.EvCommand && ev.Command == consts.CmUserCallback {
+			if fn, ok := ev.InfoPtr.(func()); ok {
+				fn()
+			}
+			p.dirty.Store(true)
+			continue
 		}
 		p.HandleEvent(&ev)
 		if ev.What == consts.EvCommand && p.OnCommand != nil {
@@ -322,13 +358,13 @@ func (p *Program) Run() {
 		}
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuitApp {
 			if !p.acceptQuit() {
-				p.dirty = true
+				p.dirty.Store(true)
 				continue
 			}
 			return
 		}
 		// Anything we just handled could have changed visible state.
-		p.dirty = true
+		p.dirty.Store(true)
 	}
 }
 
@@ -341,6 +377,26 @@ func (p *Program) acceptQuit() bool {
 	return p.OnQuitRequest()
 }
 
+// CallSoon arranges fn to run on the UI goroutine on the next pass
+// of the main loop. Implemented as a synthetic EvCommand+CmUserCallback
+// posted via PostEvent; the main loop intercepts it before any
+// HandleEvent dispatch so user OnCommand handlers never observe it.
+//
+// Goroutine-safe; intended for use by code that observes async events
+// (PTY readers, animation tickers, host workers) and needs to touch
+// view-tree state without racing the main loop. Panics inside fn
+// propagate up through Run() and hit the existing OnPanic recover.
+func (p *Program) CallSoon(fn func()) {
+	if fn == nil {
+		return
+	}
+	p.PostEvent(drivers.Event{
+		What:    consts.EvCommand,
+		Command: consts.CmUserCallback,
+		InfoPtr: fn,
+	})
+}
+
 // PostEvent queues ev for the main loop to consume on its next pass.
 // Goroutine-safe; also nudges the wake channel so a parked waitOne
 // returns immediately instead of sleeping until the next user input.
@@ -348,9 +404,13 @@ func (p *Program) acceptQuit() bool {
 // from scripted tests.
 func (p *Program) PostEvent(ev drivers.Event) {
 	if p.queue != nil {
-		p.queue.Put(ev)
+		if !p.queue.Put(ev) {
+			if p.OnEventDropped != nil && ev.What != consts.EvMouseMove {
+				p.OnEventDropped(ev)
+			}
+		}
 	}
-	p.dirty = true
+	p.dirty.Store(true)
 	select {
 	case p.wake <- struct{}{}:
 	default:
@@ -374,7 +434,7 @@ func (p *Program) PostEvent(ev drivers.Event) {
 func (p *Program) idle() {
 	pumped := p.pump()
 	animDirty := anim.Pulse()
-	if !p.dirty && !pumped && !animDirty {
+	if !p.dirty.Load() && !pumped && !animDirty {
 		return
 	}
 	// Clear the flag BEFORE drawing, not after. If a goroutine (e.g.,
@@ -384,10 +444,12 @@ func (p *Program) idle() {
 	// channel would unblock waitOne only for idle to find dirty=false
 	// and skip — manifesting as "typed character only appears after
 	// the next keystroke".
-	p.dirty = false
+	p.dirty.Store(false)
 	p.draw()
 	p.preFlush()
-	_ = p.backend.Flush()
+	if err := p.backend.Flush(); err != nil && p.OnBackendError != nil {
+		p.OnBackendError(err)
+	}
 }
 
 // preFlush walks the view tree calling PreFlush on any view that
@@ -419,7 +481,7 @@ func walkPreFlush(g *views.Group, b views.RootBackend) {
 // MarkDirty asks the program to repaint on the next idle pass. Handy
 // when external code (e.g., async data arriving) mutates a view's
 // state outside the event/anim path.
-func (p *Program) MarkDirty() { p.dirty = true }
+func (p *Program) MarkDirty() { p.dirty.Store(true) }
 
 // pump drains term events into the FV queue. Returns true if at least
 // one event was pushed — the idle loop uses that to decide whether
@@ -430,7 +492,11 @@ func (p *Program) pump() bool {
 		select {
 		case te := <-p.backend.Events():
 			if e := drivers.FromTermEvent(te); e.What != 0 {
-				p.queue.Put(e)
+				if !p.queue.Put(e) {
+					if p.OnEventDropped != nil && e.What != consts.EvMouseMove {
+						p.OnEventDropped(e)
+					}
+				}
 				any = true
 			}
 		default:
@@ -476,8 +542,12 @@ func (p *Program) waitOne() {
 				return
 			}
 			if e := drivers.FromTermEvent(te); e.What != 0 {
-				p.queue.Put(e)
-				p.dirty = true
+				if !p.queue.Put(e) {
+					if p.OnEventDropped != nil && e.What != consts.EvMouseMove {
+						p.OnEventDropped(e)
+					}
+				}
+				p.dirty.Store(true)
 			}
 		case <-p.waitTimer.C:
 		case <-p.wake:
@@ -492,8 +562,12 @@ func (p *Program) waitOne() {
 			return
 		}
 		if e := drivers.FromTermEvent(te); e.What != 0 {
-			p.queue.Put(e)
-			p.dirty = true
+			if !p.queue.Put(e) {
+				if p.OnEventDropped != nil && e.What != consts.EvMouseMove {
+					p.OnEventDropped(e)
+				}
+			}
+			p.dirty.Store(true)
 		}
 	case <-p.wake:
 		// See above.
