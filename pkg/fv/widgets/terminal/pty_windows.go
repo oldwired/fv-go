@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/oldwired/fv-go/pkg/fv/widgets/terminal/internal/conpty"
 	"golang.org/x/sys/windows"
 )
 
@@ -81,11 +82,10 @@ func startPTY(name string, args []string, env []string, dir string, cols, rows i
 		windows.CloseHandle(stdoutParentR)
 		return nil, fmt.Errorf("NewProcThreadAttributeList: %w", err)
 	}
-	if err := attrList.Update(
-		windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-		unsafe.Pointer(hPC),
-		unsafe.Sizeof(hPC),
-	); err != nil {
+	// The uintptr → unsafe.Pointer conversion this needs lives in the
+	// internal/conpty subpackage so CI can scope go vet's unsafeptr
+	// suppression to that one package without weakening checks here.
+	if err := conpty.SetPseudoConsoleAttribute(attrList, hPC); err != nil {
 		attrList.Delete()
 		windows.ClosePseudoConsole(hPC)
 		windows.CloseHandle(stdinParentW)
