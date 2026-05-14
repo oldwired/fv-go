@@ -1,0 +1,8 @@
+# Golden snapshot files must stay LF-terminated on every platform.
+# Without this, Git on Windows (default core.autocrlf=true) converts
+# LF -> CRLF at checkout, and the byte-equality comparison in
+# golden_test.go fails against the LF-only output of Headless.Snapshot()
+# even though the rendered cells are identical. The diff in CI looks
+# bizarre ("got" and "want" appear visually the same) — the only
+# difference is the hidden \r before each newline.
+*.golden text eol=lf
