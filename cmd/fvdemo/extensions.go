@@ -533,7 +533,7 @@ func showTerminal(a *app.Application) {
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	t.Write([]byte("\x1b[36m[fv-go terminal] launching " + shell + " …\x1b[0m\r\n"))
+	_, _ = t.Write([]byte("\x1b[36m[fv-go terminal] launching " + shell + " …\x1b[0m\r\n"))
 
 	// Title updates: feed back into the window's caption.
 	t.OnTitle = func(title string) {
@@ -562,7 +562,7 @@ func showTerminal(a *app.Application) {
 		return
 	}
 	if pid := t.PID(); pid != 0 {
-		t.Write([]byte("\x1b[2m[pid " + strconv.Itoa(pid) + "]\x1b[0m\r\n"))
+		_, _ = t.Write([]byte("\x1b[2m[pid " + strconv.Itoa(pid) + "]\x1b[0m\r\n"))
 	}
 }
 
@@ -793,7 +793,7 @@ func saveDesktopFile(a *app.Application) {
 			"Couldn't write %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := a.SaveDesktop(f); err != nil {
 		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
 			"Save failed: %s", []any{err.Error()}, msgbox.OKOnly)
@@ -813,7 +813,7 @@ func loadDesktopFile(a *app.Application) {
 			"Couldn't open %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := a.LoadDesktop(f); err != nil {
 		msgbox.Showf(&a.Desktop.Group, msgbox.Error,
 			"Load failed: %s", []any{err.Error()}, msgbox.OKOnly)

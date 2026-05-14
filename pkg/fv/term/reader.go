@@ -1,7 +1,6 @@
 package term
 
 import (
-	"errors"
 	"io"
 	"time"
 	"unicode/utf8"
@@ -584,7 +583,3 @@ outer:
 	}
 	return -1
 }
-
-// errClosed is returned by the platform code when stdin closes; the
-// reader translates it to a clean shutdown.
-var errClosed = errors.New("term: input closed")

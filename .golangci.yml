@@ -1,0 +1,28 @@
+# golangci-lint configuration for fv-go.
+#
+# Philosophy: enable the high-signal checks (real bugs, dead code,
+# ignored errors) and silence the stylistic quick-fix suggestions
+# that staticcheck emits as QF1xxx. Those are "you could refactor
+# this to a tagged switch" hints, not defect findings.
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  exclusions:
+    rules:
+      # QF1xxx are staticcheck "quickfix" stylistic refactor hints
+      # (use tagged switch, drop embedded selector, etc.). They're
+      # not bugs; they're taste calls we explicitly don't take.
+      - linters: [staticcheck]
+        text: "^QF1"
+      # ST1018 flags Unicode format chars (ZWJ etc.) in string
+      # literals, suggesting \uXXXX escapes. The utf8 tests
+      # deliberately use raw ZWJ glyphs so the failure mode is
+      # "test fixture broke" not "escape sequence drifted."
+      - linters: [staticcheck]
+        text: "^ST1018"
+        path: pkg/fv/utf8/

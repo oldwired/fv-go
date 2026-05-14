@@ -210,15 +210,6 @@ func New(bounds geom.Rect, src DataSource) *HexEditor {
 // GetTypeID for serial registry.
 func (h *HexEditor) GetTypeID() string { return "hexeditor" }
 
-// rows returns the total number of 16-byte rows in the source.
-func (h *HexEditor) rows() int64 {
-	if h.Source == nil {
-		return 0
-	}
-	s := h.Source.Size()
-	return (s + BytesPerRow - 1) / BytesPerRow
-}
-
 // addressWidth returns the number of cells the address column spans.
 const addressWidth = 10
 

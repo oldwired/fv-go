@@ -3,6 +3,14 @@ on:
   push:
   pull_request:
 
+# Minimal-by-default token scope. Every job in this workflow only
+# needs to read repo contents (checkout, run tests, fetch deps).
+# Explicit permissions block prevents GITHUB_TOKEN from inheriting
+# broader rights from repo/org defaults — CodeQL flags this and it
+# is correct.
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
@@ -40,3 +48,38 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test -race ./pkg/fv/...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # gofmt is non-fatal in go itself but a hard fail here — any
+      # unformatted file leaves a noisy diff for future contributors.
+      - name: gofmt
+        run: |
+          diff=$(gofmt -l -d .)
+          if [ -n "$diff" ]; then
+            echo "$diff"
+            echo
+            echo "Files above are not gofmt-clean. Run 'gofmt -w .' locally."
+            exit 1
+          fi
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        uses: golang/govulncheck-action@v1

@@ -160,14 +160,6 @@ func lineIsBlank(data []byte, start, end int) bool {
 	return true
 }
 
-// lineByIndexBounds returns the inclusive line range as two ints
-// (callable from helpers that don't want to deal with the lineByIndex
-// signature). Identical to lineByIndex, just renamed for clarity in
-// wrap-internal code.
-func (e *Editor) lineByIndexBounds(idx int) (int, int) {
-	return e.lineByIndex(idx)
-}
-
 // TrimTrailingWS removes trailing spaces / tabs from every line in
 // the buffer in a single undo entry. Convenient cleanup for source
 // files; nothing in the framework auto-invokes it, but the editor

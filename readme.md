@@ -1,5 +1,7 @@
 # fv-go — Free Vision for Go
 
+[![ci](https://github.com/oldwired/fv-go/actions/workflows/ci.yml/badge.svg)](https://github.com/oldwired/fv-go/actions/workflows/ci.yml)
+
 A Go port of Free Vision, the Turbo-Vision-derived console UI framework
 originally from Free Pascal. Based on the modernized Delphi version at
 [oldwired/fv-delphi-modern](https://github.com/oldwired/fv-delphi-modern),

@@ -281,7 +281,7 @@ func (w *gridDemoWindow) doSave() {
 			"Couldn't create %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := w.grid.SaveCSV(f, grid.CSVOptions{IncludeHeader: true}); err != nil {
 		msgbox.Showf(&w.app.Desktop.Group, msgbox.Error,
 			"Save failed: %s", []any{err.Error()}, msgbox.OKOnly)
@@ -303,7 +303,7 @@ func (w *gridDemoWindow) doLoad() {
 			"Couldn't open %s:\n%s", []any{path, err.Error()}, msgbox.OKOnly)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := w.grid.LoadCSV(f, grid.CSVOptions{
 		AutoDetectDelimiter: true,
 		IncludeHeader:       true,

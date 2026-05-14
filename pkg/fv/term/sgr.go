@@ -29,12 +29,6 @@ func newSGREncoder(color profile.ColorSystem) *sgrEncoder {
 	return &sgrEncoder{color: color}
 }
 
-// reset emits SGR 0; sgrEncoder will then re-establish the next state.
-func (e *sgrEncoder) reset(b *strings.Builder) {
-	b.WriteString("\x1b[0m")
-	e.hasLast = false
-}
-
 // transition emits exactly the SGR codes needed to change from e.last
 // to next. If hasLast is false, all attributes are emitted from scratch.
 func (e *sgrEncoder) transition(b *strings.Builder, next sgrState) {
