@@ -1,6 +1,8 @@
 package views
 
 import (
+	"time"
+
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
@@ -61,14 +63,24 @@ func (f *Frame) Draw() {
 		color = pal.FrameActive
 	}
 	iconColor := pal.FrameIcons
+	// Title-row attribute: while the owning window's flash window
+	// is open, invert fg/bg so the bar visibly flips for the bell
+	// flash. Only the top row gets the flip — side / bottom keep
+	// their normal styling so the chrome isn't disorienting.
+	titleColor := color
+	titleIconColor := iconColor
+	if f.windowFlashing() {
+		titleColor = reverseFrameAttr(titleColor)
+		titleIconColor = reverseFrameAttr(titleIconColor)
+	}
 
 	// --- Top row ---
 	top := screen.MakeDrawBuffer(w)
-	screen.DrawCell(top, 0, string(chars[0]), color)
+	screen.DrawCell(top, 0, string(chars[0]), titleColor)
 	for i := 1; i < w-1; i++ {
-		screen.DrawCell(top, i, string(chars[4]), color)
+		screen.DrawCell(top, i, string(chars[4]), titleColor)
 	}
-	screen.DrawCell(top, w-1, string(chars[1]), color)
+	screen.DrawCell(top, w-1, string(chars[1]), titleColor)
 
 	if title := f.windowTitle(); title != "" {
 		ctitle := " " + title + " "
@@ -76,18 +88,27 @@ func (f *Frame) Draw() {
 		if startX < 4 {
 			startX = 4
 		}
-		screen.DrawStr(top, startX, ctitle, color)
+		screen.DrawStr(top, startX, ctitle, titleColor)
 	}
 	if f.windowFlags()&consts.WfClose != 0 {
-		screen.DrawStr(top, 2, "[■]", iconColor)
+		screen.DrawStr(top, 2, "[■]", titleIconColor)
 	}
 	if f.windowFlags()&consts.WfZoom != 0 {
-		screen.DrawStr(top, w-5, "[↕]", iconColor)
+		screen.DrawStr(top, w-5, "[↕]", titleIconColor)
 	}
-	// Window number (1..9) immediately before the zoom icon, like
-	// classic TV. 0 means "no number".
-	if n := f.windowNumber(); n >= 1 && n <= 9 && w > 7 {
-		screen.DrawStr(top, w-7, " "+string(rune('0'+n))+" ", iconColor)
+	// Window number badge. Single-digit windows render their number;
+	// double-digit (10+) renders "+" so the user still gets a visual
+	// cue that the window has a number — the Alt-1..9 chord doesn't
+	// reach windows past 9, those need the window-list dialog.
+	if n := f.windowNumber(); n >= 1 && w > 7 {
+		var badge string
+		switch {
+		case n <= 9:
+			badge = " " + string(rune('0'+n)) + " "
+		default:
+			badge = " + "
+		}
+		screen.DrawStr(top, w-7, badge, titleIconColor)
 	}
 	f.WriteLine(0, 0, w, 1, top)
 
@@ -132,6 +153,31 @@ func (f *Frame) windowFlags() byte {
 	return 0
 }
 
+// reverseFrameAttr flips the FG / BG bytes of a TV-packed attribute.
+// Used for the title-bar flash overlay — same bit-shuffle pattern the
+// selection highlight uses, but exposed here as a helper so Frame can
+// call it without depending on the terminal widget.
+func reverseFrameAttr(attr uint16) uint16 {
+	fg := attr & 0x000F
+	bg := (attr >> 8) & 0x000F
+	fgRest := attr & 0x00F0
+	bgRest := (attr >> 8) & 0x00F0
+	return bg | bgRest | (fg << 8) | (fgRest << 8)
+}
+
+// windowFlashing walks the owner chain for a `Flashing() bool` and
+// returns the first truthy result. Same dispatch pattern as
+// windowTitle / windowFlags.
+func (f *Frame) windowFlashing() bool {
+	type flasher interface{ Flashing() bool }
+	for o := f.Owner; o != nil; o = o.Owner {
+		if t, ok := any(o.self).(flasher); ok {
+			return t.Flashing()
+		}
+	}
+	return false
+}
+
 func (f *Frame) windowNumber() int {
 	type numberer interface{ Number() int }
 	for o := f.Owner; o != nil; o = o.Owner {
@@ -172,6 +218,15 @@ type Window struct {
 	// children are intact, and the callback can walk descendants
 	// safely (e.g., to find Terminal children that need Stop()).
 	OnClose func()
+
+	// Title-bar flash state. flashUntil is the wall-clock time at
+	// which the inverted-titlebar visual reverts to normal. lastFlash
+	// is the timestamp of the most recent FlashTitleBar invocation —
+	// used to debounce a child program spamming BEL: subsequent
+	// calls within 500ms of the previous one are dropped wholesale
+	// (no extend, no re-flash) so the title bar can't strobe.
+	flashUntil time.Time
+	lastFlash  time.Time
 }
 
 // NewWindow constructs a Window with the given bounds, title, and number.
@@ -296,6 +351,32 @@ func (w *Window) Number() int { return w.number }
 func (w *Window) SetNumber(n int) {
 	w.number = n
 	MarkDirty()
+}
+
+// Flashing reports whether the title bar is currently rendering in
+// its bell-flash inverted state. Used by Frame.Draw to swap the
+// title-bar attrs. Exported so Frame can call it via interface
+// assertion through the Owner chain — same pattern as Title / Flags /
+// Number.
+func (w *Window) Flashing() bool {
+	return time.Now().Before(w.flashUntil)
+}
+
+// FlashTitleBar inverts the title-bar attributes for d, signalling
+// the user where a bell-emitting child program lives. Spam-resistant:
+// invocations within 500ms of the most recent call are dropped, so a
+// terminal spewing BELs can't strobe the chrome. A time.AfterFunc
+// posts a MarkDirty at the end of the flash so the revert happens on
+// the main loop, not from inside a parser callback.
+func (w *Window) FlashTitleBar(d time.Duration) {
+	now := time.Now()
+	if !w.lastFlash.IsZero() && now.Sub(w.lastFlash) < 500*time.Millisecond {
+		return
+	}
+	w.lastFlash = now
+	w.flashUntil = now.Add(d)
+	MarkDirty()
+	time.AfterFunc(d, MarkDirty)
 }
 
 // HandleEvent extends Group with title-bar drag, close-box and zoom-box

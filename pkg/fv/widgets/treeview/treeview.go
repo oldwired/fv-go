@@ -52,6 +52,14 @@ type TreeView struct {
 	// flips the flag, so Children mutations are picked up by
 	// rebuildFlat immediately.
 	OnExpand func(n *Node)
+
+	// OnSelect fires whenever the highlighted row changes — keyboard
+	// nav (arrows / Home / End / PageUp / PageDn) or mouse click
+	// moving focus to a different visible row. Fired AFTER Focused
+	// has been updated, so reads of t.flat[t.Focused].node inside
+	// the callback return the new node. Nil-safe; never called for
+	// out-of-range indices.
+	OnSelect func(n *Node)
 }
 
 // New constructs an empty tree.
@@ -174,6 +182,20 @@ func (t *TreeView) Draw() {
 // that, subsequent key events go to whoever was focused before,
 // matching the ListViewer pattern.
 func (t *TreeView) HandleEvent(ev *drivers.Event) {
+	// Single point of OnSelect dispatch: every nav path below mutates
+	// t.Focused; a defer here fires the callback once at the end if
+	// the index changed. Bullet-proof against new nav paths added
+	// later that forget to call a helper.
+	prev := t.Focused
+	defer func() {
+		if t.OnSelect == nil || t.Focused == prev {
+			return
+		}
+		if t.Focused < 0 || t.Focused >= len(t.flat) {
+			return
+		}
+		t.OnSelect(t.flat[t.Focused].node)
+	}()
 	if ev.What == consts.EvMouseWheel {
 		// Scroll without changing the expand state. We move Focused
 		// by ±3, which makes the visible row range shift in Draw

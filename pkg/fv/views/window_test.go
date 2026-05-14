@@ -2,6 +2,7 @@ package views
 
 import (
 	"testing"
+	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 )
@@ -51,6 +52,39 @@ func TestWindowOnCloseFiresBeforeDelete(t *testing.T) {
 		if c == w.self {
 			t.Error("window not removed from parent after Close()")
 		}
+	}
+}
+
+// TestFlashTitleBarFlagging confirms the flash window opens for the
+// requested duration and closes once it elapses.
+func TestFlashTitleBarFlagging(t *testing.T) {
+	w := NewWindow(geom.NewRect(0, 0, 20, 5), "x", 0)
+	if w.Flashing() {
+		t.Fatal("Flashing() should be false initially")
+	}
+	w.FlashTitleBar(40 * time.Millisecond)
+	if !w.Flashing() {
+		t.Error("Flashing() not set after FlashTitleBar")
+	}
+	// Wait past the flash window.
+	time.Sleep(80 * time.Millisecond)
+	if w.Flashing() {
+		t.Error("Flashing() did not clear after duration elapsed")
+	}
+}
+
+// TestFlashTitleBarDebounceDropsSpam: a second FlashTitleBar within
+// 500ms of the first is dropped wholesale — no extension, no
+// re-flash. This is the "BEL spam must not strobe the chrome" rule.
+func TestFlashTitleBarDebounceDropsSpam(t *testing.T) {
+	w := NewWindow(geom.NewRect(0, 0, 20, 5), "x", 0)
+	w.FlashTitleBar(40 * time.Millisecond)
+	firstUntil := w.flashUntil
+	// Tight follow-up: same call, well under 500ms since the first.
+	w.FlashTitleBar(1 * time.Second)
+	if !w.flashUntil.Equal(firstUntil) {
+		t.Errorf("debounced call mutated flashUntil: was %v, now %v",
+			firstUntil, w.flashUntil)
 	}
 }
 

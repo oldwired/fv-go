@@ -77,6 +77,18 @@ type Terminal struct {
 	// reader goroutine). Used to auto-close the wrapping window.
 	OnExit func(error)
 
+	// OnFeed, if non-nil, runs synchronously on every PTY-output
+	// chunk between the read and the parser. The callback returns
+	// the bytes that are actually fed to the parser (and rendered);
+	// returning the input unchanged is a pass-through. Hosts use
+	// this for byte-stream effects: asciicast recording, deliberate
+	// corruption (:rot13), in-flight transformation.
+	//
+	// PERF: runs on the hot read-path, once per chunk. Cheap callbacks
+	// only — anything that blocks or allocates heavily will stall the
+	// terminal's rendering.
+	OnFeed func(in []byte) (out []byte)
+
 	buf    *buffer
 	par    *parser
 	pty    *ptyHandle
@@ -116,6 +128,15 @@ type Terminal struct {
 	selecting   bool
 	selStartAbs cellPos
 	selEndAbs   cellPos
+
+	// Copy-mode state (tmux prefix-[ flow). EnterCopyMode parks a
+	// movable cursor at copyCursor; MoveCopyCursor walks it through
+	// scrollback + live region; ToggleCopyAnchor pins it as the
+	// selection start so subsequent moves extend the selection.
+	// Reuses selStartAbs / selEndAbs so the mouse-drag highlight and
+	// the keyboard-driven highlight share rendering.
+	copying    bool
+	copyCursor cellPos
 }
 
 // cellPos is an absolute address inside the buffer's scrollback +
@@ -296,6 +317,151 @@ func (t *Terminal) SelectionText() string {
 	return t.extractSelectionText()
 }
 
+// EnterCopyMode parks a movable cursor at the bottom-right of the
+// currently-visible viewport and flags the widget as in copy mode.
+// Subsequent MoveCopyCursor calls walk the cursor through scrollback
+// and the live region, optionally extending a selection anchored by
+// ToggleCopyAnchor. The mouse-drag selection path is unaffected.
+func (t *Terminal) EnterCopyMode() {
+	t.mu.Lock()
+	// Visible top row in absolute coords:
+	// scrollbackLen - scrollOffset. Bottom is top + H - 1, clamped to
+	// the last valid row index across scrollback + live cells.
+	topAbs := len(t.buf.scrollback) - t.buf.scrollOffset
+	bottomAbs := topAbs + t.buf.H - 1
+	maxAbs := len(t.buf.scrollback) + len(t.buf.cells) - 1
+	if bottomAbs > maxAbs {
+		bottomAbs = maxAbs
+	}
+	if bottomAbs < 0 {
+		bottomAbs = 0
+	}
+	col := t.buf.W - 1
+	if col < 0 {
+		col = 0
+	}
+	t.copyCursor = cellPos{row: bottomAbs, col: col}
+	t.copying = true
+	t.mu.Unlock()
+	views.MarkDirty()
+}
+
+// ExitCopyMode clears the copy-mode flag. Selection state (anchor +
+// endpoint) is left intact so a re-EnterCopyMode picks up where it
+// left off; the cursor glyph just stops drawing in the meantime.
+func (t *Terminal) ExitCopyMode() {
+	t.mu.Lock()
+	wasCopying := t.copying
+	t.copying = false
+	t.mu.Unlock()
+	if wasCopying {
+		views.MarkDirty()
+	}
+}
+
+// MoveCopyCursor advances the copy-mode cursor by (dx, dy). Horizontal
+// motion clamps at row boundaries (no wrap to next line). Vertical
+// motion clamps to the scrollback extent on top and the last live row
+// on bottom. If the cursor leaves the visible viewport, scrollOffset
+// is adjusted so it stays in view. No-op when not in copy mode.
+//
+// When the selection anchor is set (selStartAbs != zero), selEndAbs
+// follows the cursor so the highlight extends as the user moves.
+func (t *Terminal) MoveCopyCursor(dx, dy int) {
+	t.mu.Lock()
+	if !t.copying {
+		t.mu.Unlock()
+		return
+	}
+	maxRow := len(t.buf.scrollback) + len(t.buf.cells) - 1
+	if maxRow < 0 {
+		maxRow = 0
+	}
+	// Vertical: clamp [0, maxRow].
+	newRow := t.copyCursor.row + dy
+	if newRow < 0 {
+		newRow = 0
+	}
+	if newRow > maxRow {
+		newRow = maxRow
+	}
+	// Horizontal: clamp within the row's width — no wrap.
+	maxCol := t.buf.W - 1
+	if maxCol < 0 {
+		maxCol = 0
+	}
+	newCol := t.copyCursor.col + dx
+	if newCol < 0 {
+		newCol = 0
+	}
+	if newCol > maxCol {
+		newCol = maxCol
+	}
+	t.copyCursor = cellPos{row: newRow, col: newCol}
+	// Keep cursor in view: top visible row = len(scrollback) - scrollOffset,
+	// bottom = top + H - 1. Adjust scrollOffset so the cursor sits inside.
+	topAbs := len(t.buf.scrollback) - t.buf.scrollOffset
+	bottomAbs := topAbs + t.buf.H - 1
+	if newRow < topAbs {
+		// Cursor moved above viewport — increase scrollOffset.
+		t.buf.scrollOffset = len(t.buf.scrollback) - newRow
+		if t.buf.scrollOffset > len(t.buf.scrollback) {
+			t.buf.scrollOffset = len(t.buf.scrollback)
+		}
+	} else if newRow > bottomAbs {
+		// Cursor moved below viewport — decrease scrollOffset.
+		t.buf.scrollOffset = len(t.buf.scrollback) - newRow + t.buf.H - 1
+		if t.buf.scrollOffset < 0 {
+			t.buf.scrollOffset = 0
+		}
+	}
+	// If an anchor exists, the selection's far end follows the cursor.
+	if t.selecting {
+		t.selEndAbs = t.copyCursor
+	}
+	t.mu.Unlock()
+	views.MarkDirty()
+}
+
+// ToggleCopyAnchor pins the current copy cursor as the selection
+// start (and starts extending the selection), or clears the anchor on
+// a second call. No-op when not in copy mode.
+func (t *Terminal) ToggleCopyAnchor() {
+	t.mu.Lock()
+	if !t.copying {
+		t.mu.Unlock()
+		return
+	}
+	if t.selecting {
+		// Clear the anchor and the selection.
+		t.selecting = false
+		t.selStartAbs = cellPos{}
+		t.selEndAbs = cellPos{}
+	} else {
+		t.selStartAbs = t.copyCursor
+		t.selEndAbs = t.copyCursor
+		t.selecting = true
+	}
+	t.mu.Unlock()
+	views.MarkDirty()
+}
+
+// CopySelection extracts the currently anchored range, pushes it to
+// the clipboard via OSC 52, and returns the text plus true. When
+// there's no anchor (or the selection is empty), returns ("", false).
+// Does NOT exit copy mode — the cursor stays put so the user can
+// expand the selection and copy again.
+func (t *Terminal) CopySelection() (string, bool) {
+	t.mu.Lock()
+	text := t.extractSelectionText()
+	t.mu.Unlock()
+	if text == "" {
+		return "", false
+	}
+	clipboard.SetText(text)
+	return text, true
+}
+
 // Stop kills the child and tears down the PTY. Safe to call multiple
 // times.
 func (t *Terminal) Stop() {
@@ -333,8 +499,16 @@ func (t *Terminal) readLoop() {
 	for {
 		n, err := t.pty.Read(buf)
 		if n > 0 {
+			chunk := buf[:n]
+			// OnFeed runs synchronously between the PTY read and the
+			// parser. Hosts can use it for asciicast recording or
+			// byte-level effects (e.g., :rot13). The hook is on the
+			// hot path — keep the callback cheap. nil-safe.
+			if t.OnFeed != nil {
+				chunk = t.OnFeed(chunk)
+			}
 			t.mu.Lock()
-			t.par.Feed(buf[:n])
+			t.par.Feed(chunk)
 			t.mu.Unlock()
 			now := time.Now()
 			if t.OnActivity != nil && now.Sub(t.lastActivity) >= activityDebounce {
@@ -970,6 +1144,13 @@ func (t *Terminal) Draw() {
 				// Reverse video for selected cells. Preserve the
 				// original glyph; just flip foreground/background
 				// in the packed attr.
+				row[x].Attr = reverseAttr(row[x].Attr)
+			}
+			// Copy-mode cursor: an extra reverse pass at the cursor
+			// cell so it stays visible even on top of a selection
+			// highlight. Two reversals cancel — so we OR-in a bright
+			// fg via re-reversing the (already-reversed) cell.
+			if t.copying && absRow == t.copyCursor.row && x == t.copyCursor.col {
 				row[x].Attr = reverseAttr(row[x].Attr)
 			}
 		}
