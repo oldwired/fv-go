@@ -79,9 +79,15 @@ jobs:
   vuln:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
+      # govulncheck-action handles checkout + Go install internally
+      # (repo-checkout: true is the default, and the action runs its
+      # own setup-go). Running our own actions/checkout@v6 here would
+      # leave behind credentials from v6's new file-based persistence
+      # mechanism that conflict with the action's internal
+      # actions/checkout@v4.1.1 — git ends up sending two
+      # Authorization headers and the fetch fails with HTTP 400.
       - name: govulncheck
         uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...
