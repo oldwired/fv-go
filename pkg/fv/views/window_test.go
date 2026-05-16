@@ -106,3 +106,67 @@ func TestWindowOnCloseFiresOnModalClose(t *testing.T) {
 		t.Error("OnClose did not fire for modal-window Close()")
 	}
 }
+
+// TestClampResizeHardFloor regression for the fvmux bug: a vanilla
+// Window with no SizeLimits override must still get the (16, 4) floor
+// so the user can't drag the corner past the point where children
+// would have negative widths.
+func TestClampResizeHardFloor(t *testing.T) {
+	w := NewWindow(geom.NewRect(0, 0, 40, 20), "x", 0)
+	gotW, gotH := clampResize(w, 5, 1)
+	if gotW != 16 || gotH != 4 {
+		t.Errorf("hard floor: got (%d, %d), want (16, 4)", gotW, gotH)
+	}
+}
+
+// TestClampResizeAbovePreservedRequest confirms the clamp is a floor,
+// not a snap: a request larger than the floor passes through.
+func TestClampResizeAbovePreservedRequest(t *testing.T) {
+	w := NewWindow(geom.NewRect(0, 0, 40, 20), "x", 0)
+	gotW, gotH := clampResize(w, 50, 25)
+	if gotW != 50 || gotH != 25 {
+		t.Errorf("above-floor request: got (%d, %d), want (50, 25)", gotW, gotH)
+	}
+}
+
+// resizableTestWindow is a Window subclass that overrides SizeLimits
+// — the pattern fvmux's SFTP browser dialog uses. The clamp must
+// honor the override even when it's larger than the (16, 4) baseline.
+type resizableTestWindow struct {
+	Window
+	minW, minH int
+}
+
+func newResizableTestWindow(min geom.Point) *resizableTestWindow {
+	w := &resizableTestWindow{minW: min.X, minH: min.Y}
+	InitWindow(&w.Window, geom.NewRect(0, 0, 80, 24), "x", 0)
+	w.SetSelf(w)
+	return w
+}
+
+func (w *resizableTestWindow) SizeLimits() (geom.Point, geom.Point) {
+	return geom.Point{X: w.minW, Y: w.minH}, geom.Point{X: 1 << 14, Y: 1 << 14}
+}
+
+// TestClampResizeHonorsSizeLimitsOverride: a Window that overrides
+// SizeLimits to (60, 12) must not shrink below those dimensions.
+// This is the actual fvmux ask: dialogs that contain fixed-bound
+// children declare their minimum, and the framework respects it.
+func TestClampResizeHonorsSizeLimitsOverride(t *testing.T) {
+	w := newResizableTestWindow(geom.Point{X: 60, Y: 12})
+	gotW, gotH := clampResize(&w.Window, 20, 5)
+	if gotW != 60 || gotH != 12 {
+		t.Errorf("SizeLimits override: got (%d, %d), want (60, 12)", gotW, gotH)
+	}
+	// A request between the framework floor and the override should
+	// still clamp to the override.
+	gotW, gotH = clampResize(&w.Window, 40, 8)
+	if gotW != 60 || gotH != 12 {
+		t.Errorf("between-floor-and-override: got (%d, %d), want (60, 12)", gotW, gotH)
+	}
+	// And a generous request passes through.
+	gotW, gotH = clampResize(&w.Window, 100, 30)
+	if gotW != 100 || gotH != 30 {
+		t.Errorf("above-override request: got (%d, %d), want (100, 30)", gotW, gotH)
+	}
+}

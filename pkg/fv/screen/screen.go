@@ -23,7 +23,19 @@ const MaxViewWidth = 2048
 type DrawBuffer []types.DrawCell
 
 // MakeDrawBuffer returns a fresh buffer of length n with empty cells.
+//
+// Defensive clamps on both ends: n < 0 yields a zero-length buffer
+// rather than panicking inside `make`, and n > MaxViewWidth is
+// truncated. Without the negative-n guard, a Window resized to a
+// dimension narrower than a fixed-bound child (no GrowMode set)
+// produces a child Size.X that's negative — every Draw method's
+// first line, `buf := screen.MakeDrawBuffer(b.Size.X)`, would
+// then panic with "len out of range." The fix at the resize site
+// (window.go) is the primary remedy; this is the backstop.
 func MakeDrawBuffer(n int) DrawBuffer {
+	if n < 0 {
+		n = 0
+	}
 	if n > MaxViewWidth {
 		n = MaxViewWidth
 	}

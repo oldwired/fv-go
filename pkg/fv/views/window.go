@@ -475,6 +475,38 @@ func (w *Window) Close() {
 // site; new callers should prefer Close.
 func (w *Window) close() { w.Close() }
 
+// clampResize honors the view's declared SizeLimits floor (a dialog can
+// override SizeLimits() to keep its buttons / preview pane from being
+// shrunk off-screen), then falls back to a hard floor of 16×4 so a
+// missing override still produces a drag-resizable window. Without
+// either, the user could shrink the window past its content's left
+// edge, leaving fixed-bound children with negative widths that crash
+// MakeDrawBuffer. Extracted from resizeLoop for testability.
+//
+// We route SizeLimits through Self() so an outer struct that embeds
+// Window can override the method — calling w.SizeLimits() directly
+// would dispatch to Base.SizeLimits (zero floor) and ignore the
+// override, missing the whole point of the fvmux ask.
+func clampResize(w *Window, reqW, reqH int) (int, int) {
+	var minSz geom.Point
+	if self := w.Self(); self != nil {
+		minSz, _ = self.SizeLimits()
+	}
+	if reqW < minSz.X {
+		reqW = minSz.X
+	}
+	if reqH < minSz.Y {
+		reqH = minSz.Y
+	}
+	if reqW < 16 {
+		reqW = 16
+	}
+	if reqH < 4 {
+		reqH = 4
+	}
+	return reqW, reqH
+}
+
 // resizeLoop runs while the user holds the mouse on the bottom-right
 // corner. Each motion event recomputes the window's size based on the
 // cursor delta and re-issues ChangeBounds so children grow with the
@@ -509,14 +541,11 @@ func (w *Window) resizeLoop(start *drivers.Event) {
 		case consts.EvMouseUp:
 			return
 		case consts.EvMouseMove, consts.EvMouseDown:
-			newW := startSize.X + (ev.Where.X - startMouse.X)
-			newH := startSize.Y + (ev.Where.Y - startMouse.Y)
-			if newW < 16 {
-				newW = 16
-			}
-			if newH < 4 {
-				newH = 4
-			}
+			newW, newH := clampResize(
+				w,
+				startSize.X+(ev.Where.X-startMouse.X),
+				startSize.Y+(ev.Where.Y-startMouse.Y),
+			)
 			if newW != w.Size.X || newH != w.Size.Y {
 				w.ChangeBounds(geom.Rect{
 					A: w.Origin,
