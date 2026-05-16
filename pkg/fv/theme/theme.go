@@ -257,6 +257,13 @@ type Palette struct {
 	ToggleOff    uint16
 	SpinnerColor uint16
 
+	// Clock + heap-view system gadgets
+	ClockFace  uint16 // digital text / analog face rim
+	ClockHourH uint16 // analog hour hand
+	ClockMinH  uint16 // analog minute hand
+	ClockSecH  uint16 // analog second hand
+	HeapValue  uint16 // heap-view byte counter
+
 	// AsciiTab
 	AsciiTabActive   uint16
 	AsciiTabInactive uint16
@@ -470,6 +477,14 @@ var Default = &Palette{
 	ToggleOn:     types.MakeAttr(0x0E, 0x03),
 	ToggleOff:    types.MakeAttr(0x08, 0x03),
 	SpinnerColor: types.MakeAttr(0x0E, 0x00),
+
+	// Clock palette: white face on default bg, yellow hour, cyan minute,
+	// bright red second hand. Echoes a vintage Borland desktop clock.
+	ClockFace:  types.MakeAttr(0x0F, 0x00),
+	ClockHourH: types.MakeAttr(0x0E, 0x00),
+	ClockMinH:  types.MakeAttr(0x0B, 0x00),
+	ClockSecH:  types.MakeAttr(0x0C, 0x00),
+	HeapValue:  types.MakeAttr(0x0E, 0x07),
 
 	AsciiTabActive:   types.MakeAttr(0x0F, 0x03),
 	AsciiTabInactive: types.MakeAttr(0x07, 0x01),

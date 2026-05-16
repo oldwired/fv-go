@@ -195,6 +195,10 @@ func buildWidgetsMenu() *menus.Menu {
 		&menus.Item{Name: "~M~arquee", Command: cmWidgetMarquee},
 		&menus.Item{Name: "Bl~i~nk", Command: cmWidgetBlink},
 		&menus.Item{Name: "B~r~eadcrumb", Command: cmWidgetBreadcrumb},
+		menus.Separator(),
+		&menus.Item{Name: "~D~igital Clock", Command: cmWidgetClockDigital},
+		&menus.Item{Name: "A~n~alog Clock", Command: cmWidgetClockAnalog},
+		&menus.Item{Name: "Heap Vi~e~w", Command: cmWidgetHeapView},
 	)
 	inputs := menus.NewMenu(
 		&menus.Item{Name: "~C~ombo Box", Command: cmWidgetComboBox},
@@ -204,6 +208,7 @@ func buildWidgetsMenu() *menus.Menu {
 		&menus.Item{Name: "Tree ~V~iew", Command: cmWidgetTreeView},
 		&menus.Item{Name: "C~a~lendar", Command: cmWidgetCalendar},
 		&menus.Item{Name: "Color ~S~elector", Command: cmWidgetColorSel},
+		&menus.Item{Name: "~H~istory Dropdown", Command: cmWidgetHistory},
 	)
 	layout := menus.NewMenu(
 		&menus.Item{Name: "Ta~b~s", Command: cmWidgetTabs},

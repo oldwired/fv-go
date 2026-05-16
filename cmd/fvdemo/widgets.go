@@ -1,12 +1,14 @@
 package main
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/oldwired/fv-go/pkg/fv/app"
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/dialogs"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
+	"github.com/oldwired/fv-go/pkg/fv/history"
 	"github.com/oldwired/fv-go/pkg/fv/msgbox"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/views"
@@ -16,9 +18,11 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/widgets/blink"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/breadcrumb"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/calendar"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/clock"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/colorsel"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/colortxt"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/combobox"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/heapview"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/leddigits"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/marquee"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/notification"
@@ -69,6 +73,10 @@ const (
 	cmWidgetFileOpen
 	cmWidgetFileSave
 	cmWidgetChangeDir
+	cmWidgetClockDigital
+	cmWidgetClockAnalog
+	cmWidgetHeapView
+	cmWidgetHistory
 )
 
 // dispatchWidget routes widget-menu commands. Returns true when the
@@ -134,6 +142,14 @@ func dispatchWidget(a *app.Application, cmd uint16) bool {
 		showFileSave(a)
 	case cmWidgetChangeDir:
 		showChangeDir(a)
+	case cmWidgetClockDigital:
+		showClockDigital(a)
+	case cmWidgetClockAnalog:
+		showClockAnalog(a)
+	case cmWidgetHeapView:
+		showHeapView(a)
+	case cmWidgetHistory:
+		showHistory(a)
 	default:
 		return false
 	}
@@ -538,5 +554,70 @@ func showTooltip(a *app.Application) {
 	d.Insert(dialogs.NewLabel(geom.NewRect(2, 4, 14, 5), "~E~mail:", &email.InputLine))
 	d.Insert(email)
 	d.Insert(dialogs.NewButton(geom.NewRect(20, 7, 30, 8), "O~K~", consts.CmOK, dialogs.BfDefault))
+	a.Desktop.ExecView(d)
+}
+
+// showClockDigital opens a digital clock face with the date on top.
+// Tab through the dialog: focus moves around the buttons but the clock
+// keeps ticking — its anim.Register call drives MarkDirty on every
+// second regardless of focus.
+func showClockDigital(a *app.Application) {
+	d := dialogs.NewDialog(geom.NewRect(0, 0, 36, 9), "Digital Clock")
+	c := clock.NewDigital(geom.NewRect(2, 2, 34, 6))
+	c.ShowDate = true
+	c.BlinkColon = true
+	d.Insert(c)
+	d.Insert(dialogs.NewButton(geom.NewRect(13, 6, 23, 7), "O~K~", consts.CmOK, dialogs.BfDefault))
+	a.Desktop.ExecView(d)
+}
+
+// showClockAnalog opens the analog face with a smooth-sweep second
+// hand so the redraw rate is visibly higher than the digital cousin.
+// Bounds are roughly 2:1 so the aspect-ratio correction renders a
+// near-circular face.
+func showClockAnalog(a *app.Application) {
+	d := dialogs.NewDialog(geom.NewRect(0, 0, 36, 18), "Analog Clock")
+	c := clock.NewAnalog(geom.NewRect(2, 2, 34, 15))
+	c.SetSmoothSweep(true)
+	c.Numerals = clock.NumeralsAll
+	d.Insert(c)
+	d.Insert(dialogs.NewButton(geom.NewRect(13, 15, 23, 16), "O~K~", consts.CmOK, dialogs.BfDefault))
+	a.Desktop.ExecView(d)
+}
+
+// showHeapView surfaces the runtime's HeapAlloc + GC count. Allocate
+// a sizable slice on entry so the number is interesting rather than
+// "0 B" — the slice is intentionally kept alive until the dialog
+// closes (no `_ =` capture) so the GC doesn't reclaim it mid-demo.
+func showHeapView(a *app.Application) {
+	junk := make([]byte, 4<<20) // ~4 MiB to lift the number off zero
+	d := dialogs.NewDialog(geom.NewRect(0, 0, 40, 8), "Heap View")
+	hv := heapview.New(geom.NewRect(2, 2, 38, 4))
+	hv.ShowGC = true
+	d.Insert(hv)
+	d.Insert(dialogs.NewButton(geom.NewRect(15, 5, 25, 6), "O~K~", consts.CmOK, dialogs.BfDefault))
+	a.Desktop.ExecView(d)
+	runtime.KeepAlive(junk)
+}
+
+// showHistory demonstrates the History dropdown wired to a real
+// InputLine. We pre-seed the history store so there's something in
+// the popup; the user can also Up/Down through entries directly.
+func showHistory(a *app.Application) {
+	const id byte = 13
+	history.Clear(id)
+	history.Add(id, "alpha")
+	history.Add(id, "beta")
+	history.Add(id, "gamma")
+	history.Add(id, "the quick brown fox")
+
+	d := dialogs.NewDialog(geom.NewRect(0, 0, 56, 10), "History Popup")
+	d.Insert(dialogs.NewStaticText(geom.NewRect(2, 2, 54, 4),
+		"Click the ▾ to pick a past entry, or press ↑/↓\nfrom inside the input to scroll through them."))
+	il := dialogs.NewInputLine(geom.NewRect(2, 5, 50, 6), 64)
+	il.HistoryID = id
+	d.Insert(il)
+	d.Insert(dialogs.NewHistory(geom.NewRect(50, 5, 54, 6), il, int(id)))
+	d.Insert(dialogs.NewButton(geom.NewRect(23, 7, 33, 8), "O~K~", consts.CmOK, dialogs.BfDefault))
 	a.Desktop.ExecView(d)
 }

@@ -15,9 +15,11 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/views"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/accordion"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/calendar"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/clock"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/colorsel"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/combobox"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/grid"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/heapview"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/hyperlink"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/markdown"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/progressbar"
@@ -51,6 +53,10 @@ func TestAllConstructorsSetSelf(t *testing.T) {
 		{"CheckBoxes", func() views.View {
 			return dialogs.NewCheckBoxes(r, []string{"a", "b"})
 		}},
+		{"History", func() views.View {
+			il := dialogs.NewInputLine(r, 32)
+			return dialogs.NewHistory(geom.NewRect(20, 0, 21, 1), il, 0)
+		}},
 		{"RadioButtons", func() views.View {
 			return dialogs.NewRadioButtons(r, []string{"a", "b"})
 		}},
@@ -72,6 +78,12 @@ func TestAllConstructorsSetSelf(t *testing.T) {
 		{"Calendar", func() views.View {
 			return calendar.New(r)
 		}},
+		{"ClockDigital", func() views.View {
+			return clock.NewDigital(r)
+		}},
+		{"ClockAnalog", func() views.View {
+			return clock.NewAnalog(geom.NewRect(0, 0, 21, 11))
+		}},
 		{"ColorSelector", func() views.View {
 			return colorsel.New(r, 0)
 		}},
@@ -80,6 +92,9 @@ func TestAllConstructorsSetSelf(t *testing.T) {
 		}},
 		{"Grid", func() views.View {
 			return grid.New(r, []grid.Column{{Title: "a"}}, nil, nil)
+		}},
+		{"HeapView", func() views.View {
+			return heapview.New(r)
 		}},
 		{"Hyperlink", func() views.View {
 			return hyperlink.New(r, "label", "https://example.com")
