@@ -1,0 +1,49 @@
+name: release
+
+# On v* tag push: create a draft GitHub Release with auto-generated
+# notes, generate a CycloneDX SBOM for the module's declared
+# dependency graph (go.mod / go.sum), and attach the SBOM as a
+# release asset. The release stays in draft so the notes can be
+# reviewed and edited before it's published from the GitHub UI.
+on:
+  push:
+    tags: ['v*']
+
+# contents:write is needed by action-gh-release to upload assets and
+# create the release if it doesn't exist yet. Nothing else.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # cyclonedx-gomod is the CycloneDX project's own Go-aware SBOM
+      # generator. The `mod` subcommand emits an SBOM for the module
+      # graph declared in go.mod / go.sum, which is the contract a
+      # library exposes to its consumers. `-licenses` enriches each
+      # component with detected SPDX license info.
+      - name: Generate CycloneDX SBOM
+        uses: CycloneDX/gh-gomod-generate-sbom@v2
+        with:
+          version: v1
+          args: mod -licenses -json -output fv-go-${{ github.ref_name }}.cdx.json
+
+      # Attaches the SBOM to the Release for this tag, creating the
+      # Release as a draft so you can review the auto-generated notes
+      # and any other assets before publishing from the GitHub UI.
+      # fail_on_unmatched_files turns a missing SBOM into a hard
+      # failure rather than a silent empty-asset release.
+      - name: Attach SBOM to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: fv-go-${{ github.ref_name }}.cdx.json
+          fail_on_unmatched_files: true
+          draft: true
+          generate_release_notes: true
