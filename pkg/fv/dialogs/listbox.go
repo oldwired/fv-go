@@ -50,11 +50,40 @@ func NewStringListBox(bounds geom.Rect, vScroll *views.ScrollBar, items []string
 // GetTypeID for serial registry.
 func (s *StringListBox) GetTypeID() string { return "stringlistbox" }
 
-// SetItems replaces the contents and resets focus to 0.
+// SetItems replaces the contents and resets focus to 0. Use
+// SetItemsKeepFocus instead when refreshing a list whose selection
+// the user shouldn't have to re-establish (e.g., the items pane in a
+// master/detail dialog where the underlying set just changed shape
+// but the user's pick is still valid).
 func (s *StringListBox) SetItems(items []string) {
 	s.Items = items
 	s.SetRange(len(items))
 	s.Focused = 0
+	s.Draw()
+}
+
+// SetItemsKeepFocus replaces the contents but preserves the current
+// Focused index, clamped into [0, len(items)-1]. Use when the new
+// items list is "the same logical content reshaped" and forcing the
+// user back to row 0 would be jarring.
+//
+// If you need to follow a specific item across the reshape (e.g., the
+// "previously selected key is now at row 7"), set Focused yourself
+// after this call.
+func (s *StringListBox) SetItemsKeepFocus(items []string) {
+	prev := s.Focused
+	s.Items = items
+	s.SetRange(len(items))
+	if prev < 0 {
+		prev = 0
+	}
+	if prev >= len(items) {
+		prev = len(items) - 1
+	}
+	if prev < 0 {
+		prev = 0
+	}
+	s.Focused = prev
 	s.Draw()
 }
 

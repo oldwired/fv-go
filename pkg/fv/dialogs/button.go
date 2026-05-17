@@ -34,6 +34,21 @@ type Button struct {
 }
 
 // NewButton builds a Button. The title can include '~' to mark a hotkey.
+//
+// Layout convention: a button's drop shadow paints one row BELOW its
+// logical bounds and one cell to the RIGHT of them — outside the
+// bounds the constructor records, but inside the dialog's body. The
+// shadow row and the trailing column are reserved for the button:
+// any sibling widget placed in those cells will be overdrawn each
+// time the button repaints (focus change, hover, press flash). A
+// typical dialog reserves rows h-3 (the button row itself) and h-2
+// (its shadow) for the button strip; anything above the strip stops
+// at h-4.
+//
+// The shadow is intentionally NOT reflected in the recorded bounds
+// because that would force every existing dialog layout to add a row
+// — a breaking change. The convention has to live in the layout
+// instead.
 func NewButton(bounds geom.Rect, title string, command uint16, flags byte) *Button {
 	b := &Button{
 		Base:    views.NewBase(bounds),
@@ -57,6 +72,13 @@ func (b *Button) GetTypeID() string { return "button" }
 // Draw paints the button. Default buttons have a leading ▶, focused
 // buttons reverse-video the background, pressed buttons flash, and
 // every button casts a one-cell shadow.
+//
+// The shadow is emitted via WriteLine at local coordinates (1, 1) and
+// (w, 0), which means the framework writes one row BELOW the button's
+// bounds and one cell to the RIGHT of them. The cells outside the
+// view's bounds are still legitimate writes — Base.WriteLine doesn't
+// clip — so siblings in those positions will be overdrawn. See the
+// layout convention note on NewButton.
 func (b *Button) Draw() {
 	pal := theme.Get()
 	// TV cButton palette: black-on-green normal, bright-white when

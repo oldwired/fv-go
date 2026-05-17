@@ -227,6 +227,14 @@ type Window struct {
 	// (no extend, no re-flash) so the title bar can't strobe.
 	flashUntil time.Time
 	lastFlash  time.Time
+
+	// minSize / maxSize are the resize limits honored by clampResize.
+	// Zero on either axis means "no caller-supplied limit on that
+	// axis" — the framework's 16×4 hard floor still applies to keep
+	// children from getting negative widths, and the Base-default
+	// 16384×16384 ceiling still applies. Set via SetSizeLimits.
+	minSize geom.Point
+	maxSize geom.Point
 }
 
 // NewWindow constructs a Window with the given bounds, title, and number.
@@ -475,18 +483,64 @@ func (w *Window) Close() {
 // site; new callers should prefer Close.
 func (w *Window) close() { w.Close() }
 
+// SetSizeLimits installs a per-window minimum (and optional maximum)
+// resize size. The clampResize path on the drag-resize handle, along
+// with any other caller that consults SizeLimits, will honor these.
+// Pass a zero component on either axis to leave that bound at the
+// framework default — the 16×4 hard floor still applies as the
+// absolute backstop in clampResize, and the Base-default 16384×16384
+// ceiling still applies for maxima.
+//
+// Before this method existed, the only way to set a dialog's minimum
+// was to subclass Dialog and override SizeLimits (with the matching
+// SetSelf gotcha). SetSizeLimits replaces that boilerplate — both
+// Window and Dialog inherit it through embedding, so a caller can do
+// d := dialogs.NewDialog(...); d.SetSizeLimits(geom.Point{60,12},
+// geom.Point{}) without writing a wrapper type.
+func (w *Window) SetSizeLimits(min, max geom.Point) {
+	w.minSize = min
+	w.maxSize = max
+}
+
+// SizeLimits returns the configured (min, max). When SetSizeLimits
+// has not been called or has been called with a zero component, that
+// axis falls back to the Base-default (0,0)–(1<<14, 1<<14).
+//
+// Concrete subclasses can still override this method outright if they
+// want to compute the limits from runtime state (e.g., "min height
+// must accommodate however many children exist right now"); the
+// virtual dispatch through Self() in clampResize routes to the
+// subclass override as before.
+func (w *Window) SizeLimits() (geom.Point, geom.Point) {
+	defMin, defMax := w.Base.SizeLimits()
+	minSz, maxSz := defMin, defMax
+	if w.minSize.X > 0 {
+		minSz.X = w.minSize.X
+	}
+	if w.minSize.Y > 0 {
+		minSz.Y = w.minSize.Y
+	}
+	if w.maxSize.X > 0 {
+		maxSz.X = w.maxSize.X
+	}
+	if w.maxSize.Y > 0 {
+		maxSz.Y = w.maxSize.Y
+	}
+	return minSz, maxSz
+}
+
 // clampResize honors the view's declared SizeLimits floor (a dialog can
-// override SizeLimits() to keep its buttons / preview pane from being
-// shrunk off-screen), then falls back to a hard floor of 16×4 so a
-// missing override still produces a drag-resizable window. Without
-// either, the user could shrink the window past its content's left
-// edge, leaving fixed-bound children with negative widths that crash
-// MakeDrawBuffer. Extracted from resizeLoop for testability.
+// either call SetSizeLimits or override SizeLimits() to keep its
+// buttons / preview pane from being shrunk off-screen), then falls
+// back to a hard floor of 16×4 so a missing limit still produces a
+// drag-resizable window. Without either, the user could shrink the
+// window past its content's left edge, leaving fixed-bound children
+// with negative widths that crash MakeDrawBuffer. Extracted from
+// resizeLoop for testability.
 //
 // We route SizeLimits through Self() so an outer struct that embeds
 // Window can override the method — calling w.SizeLimits() directly
-// would dispatch to Base.SizeLimits (zero floor) and ignore the
-// override, missing the whole point of the fvmux ask.
+// would bypass the override, missing the whole point.
 func clampResize(w *Window, reqW, reqH int) (int, int) {
 	var minSz geom.Point
 	if self := w.Self(); self != nil {

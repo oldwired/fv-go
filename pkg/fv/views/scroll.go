@@ -221,6 +221,18 @@ type ListViewer struct {
 	// directory lists in file dialogs and similar "pick instantly"
 	// patterns.
 	SingleClickSelects bool
+
+	// OnFocus, if non-nil, fires whenever Focused moves to a new
+	// index — keyboard nav (arrows, Home/End, PageUp/Down), mouse
+	// click, mouse wheel, or any FocusItem call. Same semantics as
+	// TreeView.OnSelect: fired AFTER Focused has been updated so
+	// reads of l.Focused inside the callback return the new value.
+	// Nil-safe; never called for out-of-range indices.
+	//
+	// Use this for "right pane follows left list" patterns where you
+	// want a focus change to refresh detail content — saves writing a
+	// CmListItemSelected broadcast watcher in every dialog.
+	OnFocus func(idx int)
 }
 
 // NewListViewer constructs a ListViewer. cols is the column layout; for
@@ -266,6 +278,7 @@ func (l *ListViewer) FocusItem(i int) {
 	if i >= l.Range {
 		i = l.Range - 1
 	}
+	prev := l.Focused
 	l.Focused = i
 	rows := l.Size.Y
 	if rows < 1 {
@@ -279,6 +292,9 @@ func (l *ListViewer) FocusItem(i int) {
 		}
 	}
 	l.Draw()
+	if l.OnFocus != nil && prev != i && i >= 0 && i < l.Range {
+		l.OnFocus(i)
+	}
 }
 
 // Draw renders the visible items via GetText (if set).

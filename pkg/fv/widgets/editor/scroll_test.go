@@ -46,6 +46,106 @@ func TestScrollClampsToBounds(t *testing.T) {
 	}
 }
 
+// TestViewStateRoundTripPreservesCursorAndScroll verifies the
+// snapshot/restore pair preserves the user's caret + scroll across a
+// SetText call. The env-swap A→B→A flow needs this so the user
+// doesn't get teleported to line 1 of a buffer they just left.
+func TestViewStateRoundTripPreservesCursorAndScroll(t *testing.T) {
+	e := newTestEditor()
+	original := ""
+	for i := 0; i < 60; i++ {
+		original += "line\n"
+	}
+	e.SetText(original)
+	e.MoveCursor(125, false) // somewhere in the middle
+	e.Top = 12
+	e.LeftCol = 4
+	want := e.ViewState()
+
+	// Swap to a different buffer, then back.
+	e.SetText("something else\n")
+	if e.Cursor != 0 || e.Top != 0 {
+		t.Fatalf("SetText didn't reset view state — test premise broken")
+	}
+	e.SetText(original)
+	e.RestoreViewState(want)
+
+	if e.Cursor != want.Cursor {
+		t.Errorf("Cursor: got %d, want %d", e.Cursor, want.Cursor)
+	}
+	if e.Top != want.Top {
+		t.Errorf("Top: got %d, want %d", e.Top, want.Top)
+	}
+	if e.LeftCol != want.LeftCol {
+		t.Errorf("LeftCol: got %d, want %d", e.LeftCol, want.LeftCol)
+	}
+}
+
+// TestRestoreViewStateClampsToShorterBuffer: snapshotting against a
+// large buffer then restoring against a smaller one must not produce
+// out-of-range Cursor or Top values (the editor would panic on the
+// first MoveCursor / Draw otherwise).
+func TestRestoreViewStateClampsToShorterBuffer(t *testing.T) {
+	e := newTestEditor()
+	e.SetText("aaaaaaaaaaaaaaaaaaaaaaa\nbbbbbbb\ncccccc")
+	v := ViewState{Cursor: 1000, SelAnchor: 500, Top: 1000, LeftCol: 100}
+	e.SetText("short")
+	e.RestoreViewState(v)
+	if e.Cursor > len(e.Data) {
+		t.Errorf("Cursor not clamped: got %d, len=%d", e.Cursor, len(e.Data))
+	}
+	if e.Top > e.LineCount() {
+		t.Errorf("Top not clamped: got %d, LineCount=%d", e.Top, e.LineCount())
+	}
+}
+
+// TestAppendDoesNotMoveCursorWhenNotAtTail: the transcript-pane use
+// case wants Append to leave the user's cursor alone unless they
+// happen to be parked at the end (in which case the cursor follows
+// the new tail).
+func TestAppendDoesNotMoveCursorWhenNotAtTail(t *testing.T) {
+	e := newTestEditor()
+	e.SetText("hello\nworld")
+	e.MoveCursor(2, false)
+	startCursor := e.Cursor
+
+	e.Append("\nappended")
+	if e.Cursor != startCursor {
+		t.Errorf("Append moved cursor from %d to %d when not at tail", startCursor, e.Cursor)
+	}
+	if string(e.Data) != "hello\nworld\nappended" {
+		t.Errorf("buffer = %q, want %q", string(e.Data), "hello\nworld\nappended")
+	}
+}
+
+// TestAppendFollowsTailWhenAtEnd: a stick-to-bottom transcript reader
+// (cursor parked at len(Data)) should track the new content.
+func TestAppendFollowsTailWhenAtEnd(t *testing.T) {
+	e := newTestEditor()
+	e.SetText("a")
+	e.MoveCursor(len(e.Data), false)
+	e.Append("bc")
+	if e.Cursor != 3 {
+		t.Errorf("Append at tail: Cursor = %d, want 3", e.Cursor)
+	}
+}
+
+// TestAppendRoutesUndo: Append goes through applyChange so Undo
+// reverses it. Hosts that don't want unbounded undo for log streams
+// call ResetUndo periodically.
+func TestAppendRoutesUndo(t *testing.T) {
+	e := newTestEditor()
+	e.SetText("base")
+	e.Append("+more")
+	if string(e.Data) != "base+more" {
+		t.Fatalf("Append did not concatenate: %q", string(e.Data))
+	}
+	e.Undo()
+	if string(e.Data) != "base" {
+		t.Errorf("Undo after Append: %q, want %q", string(e.Data), "base")
+	}
+}
+
 // TestOnChangeFires verifies that buffer mutations route through
 // applyChange / Undo / Redo / SetText and emit OnChange with a
 // monotonically increasing version.

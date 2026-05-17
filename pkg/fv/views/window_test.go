@@ -148,6 +148,43 @@ func (w *resizableTestWindow) SizeLimits() (geom.Point, geom.Point) {
 	return geom.Point{X: w.minW, Y: w.minH}, geom.Point{X: 1 << 14, Y: 1 << 14}
 }
 
+// TestSetSizeLimitsHonoredByClampResize: callers that just want a
+// minimum without subclassing can use SetSizeLimits and the resize
+// drag honors it the same way as a subclass override.
+func TestSetSizeLimitsHonoredByClampResize(t *testing.T) {
+	w := NewWindow(geom.NewRect(0, 0, 80, 24), "x", 0)
+	w.SetSizeLimits(geom.Point{X: 50, Y: 10}, geom.Point{})
+
+	gotW, gotH := clampResize(w, 20, 5)
+	if gotW != 50 || gotH != 10 {
+		t.Errorf("SetSizeLimits(50,10) clamp: got (%d, %d), want (50, 10)", gotW, gotH)
+	}
+
+	// Zero on an axis means "no caller limit" — fall through to the
+	// 16×4 hard floor.
+	w.SetSizeLimits(geom.Point{X: 40, Y: 0}, geom.Point{})
+	gotW, gotH = clampResize(w, 5, 1)
+	if gotW != 40 || gotH != 4 {
+		t.Errorf("partial limits: got (%d, %d), want (40, 4)", gotW, gotH)
+	}
+}
+
+// TestSetSizeLimitsThroughDialogEmbedding: Dialog embeds Window, so
+// SetSizeLimits is callable on a *Dialog without a wrapper type and
+// SizeLimits dispatches correctly through Self().
+func TestSetSizeLimitsThroughDialogEmbedding(t *testing.T) {
+	w := NewWindow(geom.NewRect(0, 0, 80, 24), "x", 0)
+	w.SetSizeLimits(geom.Point{X: 60, Y: 12}, geom.Point{X: 100, Y: 30})
+	// Dispatch via Self() — same path clampResize uses.
+	gotMin, gotMax := w.Self().SizeLimits()
+	if gotMin.X != 60 || gotMin.Y != 12 {
+		t.Errorf("Self().SizeLimits min: got %v, want (60, 12)", gotMin)
+	}
+	if gotMax.X != 100 || gotMax.Y != 30 {
+		t.Errorf("Self().SizeLimits max: got %v, want (100, 30)", gotMax)
+	}
+}
+
 // TestClampResizeHonorsSizeLimitsOverride: a Window that overrides
 // SizeLimits to (60, 12) must not shrink below those dimensions.
 // This is the actual fvmux ask: dialogs that contain fixed-bound

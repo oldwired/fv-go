@@ -187,6 +187,103 @@ func (e *Editor) SetText(s string) {
 // Text returns the buffer as a string.
 func (e *Editor) Text() string { return string(e.Data) }
 
+// ViewState captures the on-screen state of an Editor so a caller can
+// round-trip it across a SetText that would otherwise lose it. Use
+// when swapping between buffers that share content (env A → env B →
+// env A): the user expects to be back where they left off, not at
+// line 1.
+type ViewState struct {
+	Cursor    int
+	SelAnchor int
+	Top       int
+	LeftCol   int
+}
+
+// ViewState snapshots Cursor / SelAnchor / Top / LeftCol so a caller
+// can restore it after a SetText.
+func (e *Editor) ViewState() ViewState {
+	return ViewState{
+		Cursor:    e.Cursor,
+		SelAnchor: e.SelAnchor,
+		Top:       e.Top,
+		LeftCol:   e.LeftCol,
+	}
+}
+
+// RestoreViewState reapplies a snapshot taken via ViewState, clamping
+// each field to the current buffer so a state saved against an older,
+// larger buffer doesn't dangle past the end of a shorter one. Does
+// not fire OnChange — the buffer didn't change.
+//
+// Typical use:
+//
+//	saved := ed.ViewState()
+//	ed.SetText(otherBuffer)
+//	// later, swap back:
+//	ed.SetText(originalBuffer)
+//	ed.RestoreViewState(saved)
+func (e *Editor) RestoreViewState(v ViewState) {
+	n := len(e.Data)
+	clamp := func(p int) int {
+		if p < 0 {
+			return 0
+		}
+		if p > n {
+			return n
+		}
+		return p
+	}
+	e.Cursor = clamp(v.Cursor)
+	if v.SelAnchor < 0 {
+		e.SelAnchor = -1
+	} else {
+		e.SelAnchor = clamp(v.SelAnchor)
+	}
+	e.Top = v.Top
+	if e.Top < 0 {
+		e.Top = 0
+	}
+	maxTop := e.LineCount() - 1
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if e.Top > maxTop {
+		e.Top = maxTop
+	}
+	e.LeftCol = v.LeftCol
+	if e.LeftCol < 0 {
+		e.LeftCol = 0
+	}
+	e.refreshScroll()
+}
+
+// Append concatenates s onto the end of the buffer. Goes through the
+// same applyChange path as Insert/Backspace so Undo covers it; hosts
+// that drive a transcript pane (log streams, REPL output, network
+// frames) and don't want unbounded undo growth should call ResetUndo
+// periodically, or set ReadOnly and accept that undo is irrelevant
+// for a display-only view.
+//
+// Unlike Insert, Append does NOT move the caret unless the caret was
+// already sitting at the very end of the buffer — in which case it
+// follows the new tail, giving "stick to the bottom" behavior for
+// transcript readers without overriding intentional cursor placement.
+func (e *Editor) Append(s string) {
+	if e.ReadOnly || s == "" {
+		return
+	}
+	atTail := e.Cursor == len(e.Data)
+	end := len(e.Data)
+	cursorAfter := e.Cursor
+	if atTail {
+		cursorAfter = end + len(s)
+	}
+	e.applyChange(end, end, []byte(s), cursorAfter)
+	if atTail {
+		e.adjustScroll()
+	}
+}
+
 // LoadFile reads path, detects its encoding (UTF-8 / UTF-16 / BOM /
 // ANSI), and converts to UTF-8 in memory. Filename and encoding are
 // recorded so SaveFile can round-trip.
