@@ -27,12 +27,24 @@ import (
 type InputLine struct {
 	views.Base
 
-	Data      []rune // current value
-	MaxLen    int
-	CurPos    int // caret position (rune index)
-	FirstPos  int // leftmost displayed rune index
-	SelAnchor int // -1 = no active selection
+	Data []rune // current value (rune slice for O(1) Cursor moves)
+	// MaxLen caps Data length in runes. Typing past this is dropped.
+	MaxLen int
+	// CurPos is the caret position as a rune index into Data.
+	CurPos int
+	// FirstPos is the rune index of the leftmost on-screen character;
+	// updated as the caret scrolls horizontally past the field width.
+	FirstPos int
+	// SelAnchor is the rune index where the selection began, or -1
+	// when there's no active selection. CurPos is the other end.
+	SelAnchor int
+	// Validator, when non-nil, screens individual keystrokes (Format)
+	// and the final value (IsValidInput / IsValid). See
+	// pkg/fv/validators for the built-in pickers/filters.
 	Validator validators.Validator
+	// HistoryID, when non-zero, names a slot in the package-level
+	// pkg/fv/history store: Up/Down recalls past values and Commit
+	// pushes the current value as a fresh entry.
 	HistoryID byte
 	histPos   int // -1 = at the live edit; >=0 = browsing
 }

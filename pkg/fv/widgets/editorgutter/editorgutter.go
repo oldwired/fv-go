@@ -115,6 +115,9 @@ type LineNumbers struct {
 	Attr   uint16
 }
 
+// NewLineNumbers builds a LineNumbers provider that pads the printed
+// index to width digits (minimum 4 — narrower numbers leave the
+// gutter feeling cramped). Uses theme.EditorLineNo for color.
 func NewLineNumbers(width int) *LineNumbers {
 	if width < 2 {
 		width = 4
@@ -122,8 +125,12 @@ func NewLineNumbers(width int) *LineNumbers {
 	return &LineNumbers{Width_: width, Attr: theme.Get().EditorLineNo}
 }
 
+// Width reports the gutter column count this provider needs (digits +
+// one trailing space).
 func (l *LineNumbers) Width() int { return l.Width_ + 1 } // include trailing space
 
+// CellAt renders the 1-based line index right-aligned in the gutter
+// column.
 func (l *LineNumbers) CellAt(lineNum int) (string, uint16) {
 	return fmt.Sprintf("%*d ", l.Width_, lineNum+1), l.Attr
 }
@@ -134,10 +141,14 @@ type Bookmarks struct {
 	Attr  uint16
 }
 
+// NewBookmarks builds an empty Bookmarks provider. Use Toggle to flip
+// the bookmark state of a 0-based line index.
 func NewBookmarks() *Bookmarks {
 	return &Bookmarks{Lines: map[int]bool{}, Attr: theme.Get().EditorBookmark}
 }
 
+// Toggle flips the bookmark state for line. Adding a line that's
+// already bookmarked removes it.
 func (b *Bookmarks) Toggle(line int) {
 	if b.Lines[line] {
 		delete(b.Lines, line)
@@ -146,8 +157,10 @@ func (b *Bookmarks) Toggle(line int) {
 	}
 }
 
+// Width reports the two-cell gutter footprint for the marker glyph.
 func (b *Bookmarks) Width() int { return 2 }
 
+// CellAt renders '★ ' on bookmarked lines and two spaces elsewhere.
 func (b *Bookmarks) CellAt(lineNum int) (string, uint16) {
 	if b.Lines[lineNum] {
 		return "★ ", b.Attr
@@ -161,10 +174,13 @@ type Breakpoints struct {
 	Attr  uint16
 }
 
+// NewBreakpoints builds an empty Breakpoints provider. Use Toggle to
+// flip the breakpoint state of a 0-based line index.
 func NewBreakpoints() *Breakpoints {
 	return &Breakpoints{Lines: map[int]bool{}, Attr: theme.Get().EditorBreakpoint}
 }
 
+// Toggle flips the breakpoint state for line.
 func (b *Breakpoints) Toggle(line int) {
 	if b.Lines[line] {
 		delete(b.Lines, line)
@@ -173,8 +189,10 @@ func (b *Breakpoints) Toggle(line int) {
 	}
 }
 
+// Width reports the two-cell gutter footprint for the marker glyph.
 func (b *Breakpoints) Width() int { return 2 }
 
+// CellAt renders '● ' on breakpoint lines and two spaces elsewhere.
 func (b *Breakpoints) CellAt(lineNum int) (string, uint16) {
 	if b.Lines[lineNum] {
 		return "● ", b.Attr
@@ -191,6 +209,8 @@ type Diff struct {
 	DelAttr  uint16
 }
 
+// NewDiff builds an empty Diff provider. Hosts populate Inserted /
+// Removed with line indices to mark added/removed lines.
 func NewDiff() *Diff {
 	return &Diff{
 		Inserted: map[int]bool{},
@@ -200,8 +220,11 @@ func NewDiff() *Diff {
 	}
 }
 
+// Width reports the two-cell gutter footprint for the marker glyph.
 func (d *Diff) Width() int { return 2 }
 
+// CellAt renders '+ ' on inserted lines, '- ' on removed lines, and
+// two spaces elsewhere.
 func (d *Diff) CellAt(lineNum int) (string, uint16) {
 	if d.Inserted[lineNum] {
 		return "+ ", d.AddAttr

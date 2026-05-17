@@ -15,16 +15,18 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/unicode"
 )
 
-// FileEncoding mirrors TFileEncoding.
+// FileEncoding identifies the encoding DetectEncoding inferred for a
+// byte slice. Mirrors TFileEncoding in FVUTF8.pas. Saved on Editor /
+// FileEditor so SaveFile can round-trip the original BOM.
 type FileEncoding int
 
 const (
-	EncUnknown FileEncoding = iota
-	EncUTF8
-	EncUTF8BOM
-	EncUTF16LE
-	EncUTF16BE
-	EncANSI // CP1252 fallback
+	EncUnknown FileEncoding = iota // sniff failed; treat as binary or ANSI
+	EncUTF8                        // plain UTF-8, no BOM
+	EncUTF8BOM                     // UTF-8 with leading EF BB BF
+	EncUTF16LE                     // UTF-16 little-endian (FF FE BOM optional)
+	EncUTF16BE                     // UTF-16 big-endian (FE FF BOM optional)
+	EncANSI                        // CP1252 fallback for legacy 8-bit files
 )
 
 // DetectEncoding examines up to len(data) bytes and returns the most

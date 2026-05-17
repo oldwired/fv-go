@@ -44,6 +44,10 @@ func NewHeadless(cols, rows int) *Headless {
 // Compile-time check.
 var _ Backend = (*Headless)(nil)
 
+// The methods below satisfy the term.Backend interface. See
+// Backend's documentation for per-method semantics; the Headless
+// implementations are in-memory no-ops that record state for tests.
+
 func (h *Headless) Init() error  { return nil }
 func (h *Headless) Close() error { return nil }
 

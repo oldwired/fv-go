@@ -35,190 +35,190 @@ type Palette struct {
 	MenuBarNormal       uint16 // top-level menu strip
 	MenuBarHot          uint16 // hotkey letter in menu strip
 	MenuItemSelected    uint16 // highlighted strip item
-	MenuItemSelectedHot uint16
+	MenuItemSelectedHot uint16 // hotkey letter inside the highlighted strip item
 
 	// Menu box (drop-down)
-	MenuBoxFrame            uint16
-	MenuBoxNormal           uint16
-	MenuBoxNormalHot        uint16
-	MenuBoxSelected         uint16
-	MenuBoxSelectedHot      uint16
-	MenuBoxDisabled         uint16
-	MenuBoxDisabledSelected uint16
+	MenuBoxFrame            uint16 // border around the popup
+	MenuBoxNormal           uint16 // popup body row
+	MenuBoxNormalHot        uint16 // hotkey letter on a normal row
+	MenuBoxSelected         uint16 // currently-highlighted row
+	MenuBoxSelectedHot      uint16 // hotkey letter on the highlighted row
+	MenuBoxDisabled         uint16 // greyed-out unselectable row
+	MenuBoxDisabledSelected uint16 // disabled row when the highlight bar covers it
 	MenuBoxShortcut         uint16 // dim right-aligned chord hint
 	MenuBoxShortcutSelected uint16 // shortcut on the currently-highlighted row
-	MenuBoxShadow           uint16
+	MenuBoxShadow           uint16 // drop-shadow under the popup
 
 	// Status line
-	StatusBarNormal uint16
-	StatusBarHot    uint16
+	StatusBarNormal uint16 // status line body
+	StatusBarHot    uint16 // shortcut letter inside a status item
 
 	// Scroll bars / lists
-	ScrollBarPage   uint16
-	ScrollBarThumb  uint16
-	ListItemNormal  uint16
-	ListItemFocused uint16
+	ScrollBarPage   uint16 // empty trough between thumb and ends
+	ScrollBarThumb  uint16 // draggable thumb + arrow buttons
+	ListItemNormal  uint16 // unselected list row
+	ListItemFocused uint16 // currently-highlighted list row
 
 	// Splitter
-	SplitterBar    uint16
-	SplitterHandle uint16
+	SplitterBar    uint16 // vertical/horizontal divider line
+	SplitterHandle uint16 // draggable grip in the middle of the bar
 
 	// Help viewer
-	HelpBackground uint16
-	HelpHeading    uint16
-	HelpBullet     uint16
-	HelpLink       uint16
-	HelpCode       uint16
-	HelpRule       uint16
-	HelpQuote      uint16
+	HelpBackground uint16 // body of the help window
+	HelpHeading    uint16 // bold heading lines
+	HelpBullet     uint16 // bullet markers in lists
+	HelpLink       uint16 // cross-references / external links
+	HelpCode       uint16 // inline code and fenced blocks
+	HelpRule       uint16 // horizontal rules
+	HelpQuote      uint16 // blockquote bodies
 
 	// Dialogs
-	DialogBackground uint16
+	DialogBackground uint16 // dialog body fill
 
 	// Buttons
-	ButtonNormal     uint16
-	ButtonNormalHot  uint16
-	ButtonDefault    uint16
-	ButtonDefaultHot uint16
-	ButtonFocused    uint16
-	ButtonFocusedHot uint16
-	ButtonPressed    uint16
-	ButtonPressedHot uint16
-	ButtonShadow     uint16
+	ButtonNormal     uint16 // unfocused button face
+	ButtonNormalHot  uint16 // hotkey letter on an unfocused button
+	ButtonDefault    uint16 // default-action button face (▶ leader)
+	ButtonDefaultHot uint16 // hotkey letter on the default button
+	ButtonFocused    uint16 // currently-focused button face
+	ButtonFocusedHot uint16 // hotkey letter on the focused button
+	ButtonPressed    uint16 // button being depressed by mouse/keystroke
+	ButtonPressedHot uint16 // hotkey letter while pressed
+	ButtonShadow     uint16 // drop-shadow row/column
 
 	// Input line
-	InputUnfocused uint16
-	InputFocused   uint16
-	InputSelected  uint16
-	InputArrow     uint16
+	InputUnfocused uint16 // text-input field at rest
+	InputFocused   uint16 // text-input field with caret
+	InputSelected  uint16 // selected text inside the field
+	InputArrow     uint16 // ◄►/▾ affordances for history/combos
 
 	// Cluster (radio / checkbox group)
-	ClusterNormal      uint16
-	ClusterHot         uint16
-	ClusterFocusNormal uint16
-	ClusterFocusHot    uint16
+	ClusterNormal      uint16 // item label, group unfocused
+	ClusterHot         uint16 // hotkey letter, group unfocused
+	ClusterFocusNormal uint16 // item label on the focused row
+	ClusterFocusHot    uint16 // hotkey letter on the focused row
 
 	// Static text / label
-	LabelNormal     uint16
-	LabelHot        uint16
-	LabelFocused    uint16
-	LabelFocusedHot uint16
+	LabelNormal     uint16 // label text when its linked field is unfocused
+	LabelHot        uint16 // hotkey letter, link unfocused
+	LabelFocused    uint16 // label text when its linked field has focus
+	LabelFocusedHot uint16 // hotkey letter, link focused
 
 	// History
-	HistorySides  uint16
-	HistoryWindow uint16
-	HistoryArrow  uint16
+	HistorySides  uint16 // frame sides of the popup
+	HistoryWindow uint16 // popup body / item rows
+	HistoryArrow  uint16 // ▾ dropdown affordance next to InputLine
 
 	// Tabs
-	TabActive      uint16
-	TabActiveHot   uint16
-	TabInactive    uint16
-	TabInactiveHot uint16
-	TabBar         uint16
-	TabSeparator   uint16
+	TabActive      uint16 // currently-selected tab label
+	TabActiveHot   uint16 // hotkey letter on the active tab
+	TabInactive    uint16 // unselected tab label
+	TabInactiveHot uint16 // hotkey letter on an inactive tab
+	TabBar         uint16 // strip background
+	TabSeparator   uint16 // divider line between body and strip
 
 	// Accordion
-	AccordionHeader  uint16
-	AccordionExpand  uint16
-	AccordionContent uint16
+	AccordionHeader  uint16 // collapsible section header
+	AccordionExpand  uint16 // ▸/▾ expansion marker
+	AccordionContent uint16 // expanded section body
 
 	// Tree view
-	TreeNormal  uint16
-	TreeFocused uint16
-	TreeIcon    uint16
+	TreeNormal  uint16 // unfocused row text
+	TreeFocused uint16 // currently-highlighted row
+	TreeIcon    uint16 // expand/collapse marker
 
 	// Combo box
-	ComboButton uint16
+	ComboButton uint16 // ▾ button that opens the dropdown
 
 	// Toolbar
-	ToolbarNormal  uint16
-	ToolbarHover   uint16
-	ToolbarPressed uint16
+	ToolbarNormal  uint16 // button strip at rest
+	ToolbarHover   uint16 // button under the mouse cursor
+	ToolbarPressed uint16 // button being clicked
 
 	// Tooltip
-	TooltipNormal uint16
-	TooltipShadow uint16
+	TooltipNormal uint16 // tooltip body
+	TooltipShadow uint16 // drop-shadow under the tooltip
 
 	// Pop-up menu
-	PopupMenuNormal      uint16
-	PopupMenuSelected    uint16
-	PopupMenuFrame       uint16
-	PopupMenuHot         uint16
-	PopupMenuSelectedHot uint16
+	PopupMenuNormal      uint16 // unselected item row
+	PopupMenuSelected    uint16 // highlighted row
+	PopupMenuFrame       uint16 // border around the popup
+	PopupMenuHot         uint16 // matching-filter letter on a row
+	PopupMenuSelectedHot uint16 // matching-filter letter on the highlighted row
 
 	// Fuzzy finder
-	FuzzyFinderNormal    uint16
-	FuzzyFinderSelected  uint16
-	FuzzyFinderHighlight uint16
-	FuzzyFinderPrompt    uint16
-	FuzzyFinderFrame     uint16
+	FuzzyFinderNormal    uint16 // candidate row text
+	FuzzyFinderSelected  uint16 // currently-highlighted candidate
+	FuzzyFinderHighlight uint16 // matched substring inside a row
+	FuzzyFinderPrompt    uint16 // query prompt line
+	FuzzyFinderFrame     uint16 // border around the finder
 
 	// Breadcrumb
-	BreadcrumbNormal    uint16
-	BreadcrumbSeparator uint16
-	BreadcrumbCurrent   uint16
+	BreadcrumbNormal    uint16 // non-current path segment
+	BreadcrumbSeparator uint16 // ▸ between segments
+	BreadcrumbCurrent   uint16 // active/last segment
 
 	// Notification
-	NotificationInfo   uint16
-	NotificationWarn   uint16
-	NotificationError  uint16
-	NotificationShadow uint16
+	NotificationInfo   uint16 // info-severity toast
+	NotificationWarn   uint16 // warning-severity toast
+	NotificationError  uint16 // error-severity toast
+	NotificationShadow uint16 // drop-shadow under the toast
 
 	// Calendar
-	CalendarFrame   uint16
-	CalendarToday   uint16
-	CalendarFocused uint16
-	CalendarWeekend uint16
-	CalendarDimmed  uint16
+	CalendarFrame   uint16 // border + month/year header
+	CalendarToday   uint16 // today's date cell
+	CalendarFocused uint16 // currently-selected date cell
+	CalendarWeekend uint16 // Sat/Sun cells
+	CalendarDimmed  uint16 // leading/trailing days from adjacent months
 
 	// Grid
-	GridHeader     uint16
-	GridHeaderSep  uint16
-	GridCell       uint16
-	GridCellAlt    uint16
-	GridCellCursor uint16
-	GridPinned     uint16
-	GridFrame      uint16
+	GridHeader     uint16 // column-header row
+	GridHeaderSep  uint16 // separator line under the header
+	GridCell       uint16 // body cell (odd row)
+	GridCellAlt    uint16 // body cell (even row, zebra striping)
+	GridCellCursor uint16 // cell under the cursor
+	GridPinned     uint16 // frozen / pinned column tint
+	GridFrame      uint16 // outer border
 
 	// Editor / syntax / gutter
-	EditorText       uint16
-	EditorSelected   uint16
-	EditorKeyword    uint16
-	EditorString     uint16
-	EditorComment    uint16
-	EditorNumber     uint16
-	EditorLineNo     uint16
-	EditorBookmark   uint16
-	EditorBreakpoint uint16
+	EditorText       uint16 // body text
+	EditorSelected   uint16 // selected range
+	EditorKeyword    uint16 // language keyword token (if, for, …)
+	EditorString     uint16 // string-literal token
+	EditorComment    uint16 // comment token
+	EditorNumber     uint16 // numeric-literal token
+	EditorLineNo     uint16 // line-number gutter column
+	EditorBookmark   uint16 // ★ gutter marker
+	EditorBreakpoint uint16 // ● gutter marker
 
 	// Markdown rendering (also used by SyntaxStyles factories)
-	MarkdownHeading uint16
-	MarkdownEmph    uint16
-	MarkdownCode    uint16
-	MarkdownLink    uint16
-	MarkdownStrike  uint16
-	MarkdownBullet  uint16
-	MarkdownQuote   uint16
-	MarkdownRule    uint16
-	MarkdownImage   uint16
+	MarkdownHeading uint16 // # H1 / ## H2 / … heading lines
+	MarkdownEmph    uint16 // *emph* / _emph_
+	MarkdownCode    uint16 // inline `code` and fenced blocks
+	MarkdownLink    uint16 // [text](url) link target
+	MarkdownStrike  uint16 // ~~strike~~
+	MarkdownBullet  uint16 // - / * list bullets
+	MarkdownQuote   uint16 // > blockquote body
+	MarkdownRule    uint16 // --- horizontal rules
+	MarkdownImage   uint16 // ![alt](url) image placeholder
 
 	// Hex editor
-	HexAddr    uint16
-	HexByte    uint16
-	HexAscii   uint16
-	HexFocused uint16
+	HexAddr    uint16 // left address column
+	HexByte    uint16 // hex byte pairs in the middle column
+	HexAscii   uint16 // ASCII gutter on the right
+	HexFocused uint16 // byte under the cursor (in either column)
 
 	// Logviewer
-	LogTime  uint16
-	LogText  uint16
-	LogError uint16
-	LogWarn  uint16
-	LogInfo  uint16
+	LogTime  uint16 // timestamp column
+	LogText  uint16 // default message text
+	LogError uint16 // error-severity messages
+	LogWarn  uint16 // warn-severity messages
+	LogInfo  uint16 // info-severity messages
 
 	// Progress bar / task progress
-	ProgressEmpty  uint16
-	ProgressFilled uint16
-	ProgressText   uint16
+	ProgressEmpty  uint16 // unfilled portion of the bar
+	ProgressFilled uint16 // filled portion of the bar
+	ProgressText   uint16 // percent / count overlay text
 
 	// Battery / charge widgets
 	GaugeGood  uint16 // green normal
@@ -228,34 +228,34 @@ type Palette struct {
 	GaugeLabel uint16 // numeric overlay
 
 	// LED digits / blinker / marquee
-	LedDigit    uint16
-	BlinkText   uint16
-	MarqueeText uint16
+	LedDigit    uint16 // 7-segment digit foreground
+	BlinkText   uint16 // text in the blink widget
+	MarqueeText uint16 // scrolling marquee text
 
 	// CPU / RAM / network / disk / process — generic stats
-	StatHeader   uint16
-	StatLabel    uint16
-	StatValue    uint16
-	StatPositive uint16
-	StatNegative uint16
-	StatNeutral  uint16
+	StatHeader   uint16 // section header row
+	StatLabel    uint16 // metric name column
+	StatValue    uint16 // metric value column
+	StatPositive uint16 // good / increasing values
+	StatNegative uint16 // bad / decreasing values
+	StatNeutral  uint16 // neutral / no-change values
 
 	// Modern file dialog
-	ModernFrame    uint16
-	ModernSelected uint16
-	ModernFilter   uint16
+	ModernFrame    uint16 // dialog border
+	ModernSelected uint16 // currently-highlighted entry
+	ModernFilter   uint16 // filter input line / pattern hint
 
 	// Color selector swatches default frame
-	ColorSelFrame uint16
+	ColorSelFrame uint16 // border around the color swatch grid
 
 	// Hyperlink
-	HyperlinkNormal  uint16
-	HyperlinkVisited uint16
+	HyperlinkNormal  uint16 // unvisited link
+	HyperlinkVisited uint16 // visited link
 
 	// Toggle / spinner
-	ToggleOn     uint16
-	ToggleOff    uint16
-	SpinnerColor uint16
+	ToggleOn     uint16 // toggle in the "on" state
+	ToggleOff    uint16 // toggle in the "off" state
+	SpinnerColor uint16 // animated spinner glyph
 
 	// Clock + heap-view system gadgets
 	ClockFace  uint16 // digital text / analog face rim
@@ -265,15 +265,15 @@ type Palette struct {
 	HeapValue  uint16 // heap-view byte counter
 
 	// AsciiTab
-	AsciiTabActive   uint16
-	AsciiTabInactive uint16
+	AsciiTabActive   uint16 // currently-selected ASCII-art tab
+	AsciiTabInactive uint16 // unselected tab
 
 	// Generic accent palettes for charts (used by barchart / sparkline / vumeter)
-	ChartBar1 uint16
-	ChartBar2 uint16
-	ChartBar3 uint16
-	ChartBar4 uint16
-	ChartAxis uint16
+	ChartBar1 uint16 // first accent (primary series)
+	ChartBar2 uint16 // second accent
+	ChartBar3 uint16 // third accent
+	ChartBar4 uint16 // fourth accent
+	ChartAxis uint16 // axes / gridlines / tick labels
 }
 
 // Default is the classic Turbo Vision palette — cyan window bodies,

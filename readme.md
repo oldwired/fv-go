@@ -161,6 +161,18 @@ you:
 
 ## License
 
-Inherits the Free Vision / Free Pascal license — see `COPYING.FPC`
-and `COPYING.txt`. Original-author copyright headers are preserved
-inside each ported unit.
+Inherits the Free Vision / Free Pascal license:
+
+- `LICENSE` — GNU Lesser General Public License, version 2.1.
+- `FPC-EXCEPTION.txt` — Free Pascal library linking exception, which
+  permits linking against modified versions without forcing the
+  linked work to be LGPL.
+
+**SPDX-License-Identifier:** `LGPL-2.1-or-later WITH FPC-modified-LGPL-exception`
+
+The practical effect of the FPC exception is that you may distribute
+statically linked binaries without needing to make your application's
+source available, provided you preserve the fv-go license headers
+and provide notice that the library may be replaced or recompiled.
+See `FPC-EXCEPTION.txt` for the exact terms. Original-author
+copyright headers are preserved inside each ported unit.

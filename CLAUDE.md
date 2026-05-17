@@ -51,5 +51,6 @@ decoders. Beyond that, the port matches the Pascal feature surface.
 ## License
 
 Inherits the Free Vision / Free Pascal license — see
-[`LICENSE.md`](LICENSE.md), `COPYING.FPC`, and `COPYING.txt`.
+[`LICENSE`](LICENSE) (LGPL-2.1) and
+[`FPC-EXCEPTION.txt`](FPC-EXCEPTION.txt) (linking exception).
 Preserve license headers when translating unit-by-unit.

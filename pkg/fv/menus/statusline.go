@@ -13,8 +13,13 @@ import (
 // StatusItem is a single hint+keyboard shortcut entry on the status
 // line. "F1" + hint "Help" + command cmHelp.
 type StatusItem struct {
-	Text    string
+	// Text is the displayed hint, e.g. "~F1~ Help" — '~' marks the
+	// hotkey letter for hot-letter highlighting.
+	Text string
+	// KeyCode is the keypress that fires Command, e.g. consts.KbF1.
 	KeyCode uint16
+	// Command is the EvCommand emitted when the user presses KeyCode
+	// or clicks the item.
 	Command uint16
 }
 
@@ -27,11 +32,23 @@ type StatusItem struct {
 // kept for backward compatibility; new callers should prefer
 // LeftItems + RightItems. A blank middle gap separates the two sides.
 type StatusDef struct {
-	Min, Max   uint16
-	Items      []*StatusItem
-	LeftItems  []*StatusItem
+	// Min, Max define the help-context range this def applies to.
+	// 0..0xFFFF for an always-active def.
+	Min, Max uint16
+	// Items is the legacy single-slot, left-aligned item list. New
+	// callers should prefer LeftItems + RightItems.
+	Items []*StatusItem
+	// LeftItems renders left-aligned starting at column 1, growing
+	// right. Drawn after Items so legacy + modern layouts compose.
+	LeftItems []*StatusItem
+	// RightItems renders right-justified at the right edge in
+	// declared order. Useful for "Alt-X Exit" / clock / status
+	// indicators.
 	RightItems []*StatusItem
-	Next       *StatusDef
+	// Next chains another def for a different help-context range.
+	// The first def whose Min..Max bracket includes the focus's
+	// HelpCtx is the active one.
+	Next *StatusDef
 }
 
 // StatusLine is the bottom-row hint bar.

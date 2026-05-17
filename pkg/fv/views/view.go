@@ -106,12 +106,19 @@ func NewBase(bounds geom.Rect) Base {
 // Default implementations follow. Concrete types shadow whichever ones
 // need divergent behavior.
 
+// GetTypeID is the default serial-registry tag. Concrete types shadow
+// this with a unique string so save/load round-trips identify them.
 func (b *Base) GetTypeID() string { return "view" }
 
+// SizeLimits is the default resize floor (0,0) and ceiling
+// (1<<14, 1<<14). Subclasses (or callers via Window.SetSizeLimits)
+// override to constrain interactive resize.
 func (b *Base) SizeLimits() (geom.Point, geom.Point) {
 	return geom.Point{X: 0, Y: 0}, geom.Point{X: 1 << 14, Y: 1 << 14}
 }
 
+// SetState toggles one or more State bits. With enable=true the bits
+// are set; with enable=false they are cleared.
 func (b *Base) SetState(state uint16, enable bool) {
 	if enable {
 		b.State |= state
@@ -120,12 +127,18 @@ func (b *Base) SetState(state uint16, enable bool) {
 	}
 }
 
+// GetState reports whether every bit in state is set on b.State.
 func (b *Base) GetState(state uint16) bool { return b.State&state == state }
 
+// HandleEvent is the no-op default. Concrete types override to react
+// to mouse, keyboard, command, and broadcast events.
 func (b *Base) HandleEvent(ev *drivers.Event) {
 	// Default: handle nothing.
 }
 
+// Draw is the default paint: clear the view's extent to a blank
+// background. Concrete types override with whatever the widget
+// actually renders.
 func (b *Base) Draw() {
 	// Default: clear our extent to a blank background.
 	for y := 0; y < b.Size.Y; y++ {
@@ -134,12 +147,26 @@ func (b *Base) Draw() {
 	}
 }
 
+// GetPalette returns the per-view palette override, or nil to inherit
+// from the active theme. Most widgets read theme.Get() directly and
+// leave this as the default nil.
 func (b *Base) GetPalette() []byte { return nil }
 
-func (b *Base) DataSize() int      { return 0 }
+// DataSize reports the byte length of GetData/SetData payloads. Used
+// by Dialog.Validate and the serial registry. Default 0 (no payload).
+func (b *Base) DataSize() int { return 0 }
+
+// GetData copies the view's current value into buf. Default no-op;
+// widgets that carry a value (InputLine, Cluster, …) override.
 func (b *Base) GetData(buf []byte) {}
+
+// SetData installs a new value from buf. Default no-op; widgets that
+// carry a value override.
 func (b *Base) SetData(buf []byte) {}
-func (b *Base) Valid(uint16) bool  { return true }
+
+// Valid reports whether the view is in a valid state for the given
+// command (used by Dialog.Valid before EndModal). Default true.
+func (b *Base) Valid(uint16) bool { return true }
 
 // MoveTo translates Origin to (x, y) without resizing.
 func (b *Base) MoveTo(x, y int) {
