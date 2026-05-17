@@ -5,8 +5,7 @@
 A Go port of Free Vision, the Turbo-Vision-derived console UI framework
 originally from Free Pascal. Based on the modernized Delphi version at
 [oldwired/fv-delphi-modern](https://github.com/oldwired/fv-delphi-modern),
-not the original Free Pascal sources — the Delphi tree is included
-verbatim under `fv-delphi/` as a porting reference.
+not the original Free Pascal sources.
 
 Status: full vertical slice up to and including an embedded VT terminal
 emulator. macOS / Linux first-class; Windows builds clean

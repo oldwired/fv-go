@@ -97,13 +97,12 @@ Available in: `views`, `anim`, `theme`, `clipboard`.
 
 ## Reference implementation
 
-The Delphi reference lives in `fv-delphi/`. Read the relevant `.pas`
-before porting or modifying a unit:
-
-- `fv-delphi/src/` — Delphi/Pascal sources.
-- `fv-delphi/CLAUDE.md` — Delphi-side conventions.
-- `fv-delphi/ARCHITECTURE.md` — class hierarchy, interface contracts.
-- `fv-delphi/PORTING.md` — Pascal-to-modern-Delphi playbook.
+The Delphi reference lives upstream at
+[oldwired/fv-delphi-modern](https://github.com/oldwired/fv-delphi-modern).
+Browse the relevant `.pas` there before porting or modifying a unit —
+`src/` for the unit sources, `ARCHITECTURE.md` for the class hierarchy
+and interface contracts, `PORTING.md` for the Pascal-to-modern-Delphi
+playbook.
 
 For the Go-side adaptation strategy, see [docs/ARCHITECTURE.md](ARCHITECTURE.md).
 For terminal specifics see [docs/TERMINAL.md](TERMINAL.md).

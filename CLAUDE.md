@@ -42,8 +42,9 @@ decoders. Beyond that, the port matches the Pascal feature surface.
 - **Don't restate the task in a comment.** Comments that say "added
   for the X flow" or "used by Y" belong in PR descriptions, not in
   the source, and rot as the codebase evolves.
-- **Reference implementation:** Delphi sources live in `fv-delphi/`.
-  Read the relevant `.pas` before porting or modifying a unit.
+- **Reference implementation:** the original Delphi sources live upstream
+  at https://github.com/oldwired/fv-delphi-modern. Browse the relevant
+  `.pas` there before porting or modifying a unit.
 - **Don't run `cmd/fvdemo` non-interactively** as part of automation
   — it expects a real TTY.
 

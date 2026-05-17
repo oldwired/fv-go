@@ -324,7 +324,6 @@ func showTreeView(a *app.Application) {
 		{Label: "cmd", Children: []*treeview.Node{
 			{Label: "fvdemo"},
 		}},
-		{Label: "fv-delphi (reference)"},
 	}}
 	tree := treeview.New(geom.NewRect(2, 2, 38, 11), []*treeview.Node{root})
 	d.Insert(tree)

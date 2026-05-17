@@ -250,7 +250,9 @@ Patterns to lift:
 
 - Read `cmd/fvdemo/main.go` end-to-end (200 lines, dense but
   illustrative).
-- For Pascal porters: `fv-delphi/` is the source-of-truth reference.
-  Most Go files have a `// Ported from <Foo>.pas` comment at the top.
+- For Pascal porters: the source-of-truth reference is upstream at
+  [oldwired/fv-delphi-modern](https://github.com/oldwired/fv-delphi-modern).
+  Most Go files have a `// Ported from <Foo>.pas` comment at the top
+  pointing to the matching unit.
 - For widget authors: pick a small existing widget like
   `widgets/spinner` and use it as a template.
