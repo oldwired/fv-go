@@ -58,10 +58,17 @@ type Editor struct {
 	Top       int    // line index of the first visible line
 	LeftCol   int    // first visible column (in display cells)
 	TabWidth  int    // expand tabs to this many spaces visually
-	ReadOnly  bool
-	Modified  bool
-	encoding  utf8.FileEncoding // remembered for save round-trip
-	Filename  string
+	// ReadOnly gates USER-INPUT mutators only — Insert (called from
+	// the typed-keystroke path in HandleEvent), Backspace,
+	// DeleteForward, Reformat, ReplaceAll. Host-driven content APIs
+	// (SetText, Append) intentionally bypass it: a transcript pane
+	// can be ReadOnly=true and still receive programmatic Append
+	// calls so the user sees streamed output without being able to
+	// type into it.
+	ReadOnly bool
+	Modified bool
+	encoding utf8.FileEncoding // remembered for save round-trip
+	Filename string
 
 	HScroll *views.ScrollBar
 	VScroll *views.ScrollBar
@@ -261,15 +268,21 @@ func (e *Editor) RestoreViewState(v ViewState) {
 // same applyChange path as Insert/Backspace so Undo covers it; hosts
 // that drive a transcript pane (log streams, REPL output, network
 // frames) and don't want unbounded undo growth should call ResetUndo
-// periodically, or set ReadOnly and accept that undo is irrelevant
-// for a display-only view.
+// periodically.
 //
 // Unlike Insert, Append does NOT move the caret unless the caret was
 // already sitting at the very end of the buffer — in which case it
 // follows the new tail, giving "stick to the bottom" behavior for
 // transcript readers without overriding intentional cursor placement.
+//
+// Append is host-driven and intentionally bypasses ReadOnly — the
+// same semantics as SetText. ReadOnly gates user-input mutators
+// (typed keystrokes routed to Insert / Backspace / DeleteForward),
+// not programmatic content updates. A transcript pane can therefore
+// keep ReadOnly=true (so the user can't edit the streamed output)
+// while the host continues to Append fresh frames.
 func (e *Editor) Append(s string) {
-	if e.ReadOnly || s == "" {
+	if s == "" {
 		return
 	}
 	atTail := e.Cursor == len(e.Data)

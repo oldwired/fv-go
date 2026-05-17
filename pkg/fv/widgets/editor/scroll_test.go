@@ -146,6 +146,31 @@ func TestAppendRoutesUndo(t *testing.T) {
 	}
 }
 
+// TestAppendBypassesReadOnly: ReadOnly gates user-input mutators
+// (Insert from typed keys, Backspace, etc.) but not host-driven
+// content APIs. A transcript pane should be able to keep
+// ReadOnly=true and still receive programmatic Append calls so the
+// user can't type into the streamed output. This matches SetText's
+// existing semantics.
+func TestAppendBypassesReadOnly(t *testing.T) {
+	e := newTestEditor()
+	e.SetText("base")
+	e.ReadOnly = true
+
+	e.Append("+streamed")
+	if string(e.Data) != "base+streamed" {
+		t.Errorf("Append should bypass ReadOnly (matching SetText): got %q, want %q",
+			string(e.Data), "base+streamed")
+	}
+
+	// Insert (user-input path) should still be blocked.
+	prev := string(e.Data)
+	e.Insert("typed")
+	if string(e.Data) != prev {
+		t.Errorf("Insert under ReadOnly mutated buffer: got %q, want %q", string(e.Data), prev)
+	}
+}
+
 // TestOnChangeFires verifies that buffer mutations route through
 // applyChange / Undo / Redo / SetText and emit OnChange with a
 // monotonically increasing version.
