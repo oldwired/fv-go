@@ -110,11 +110,27 @@ type Editor struct {
 	// status-line position indicator with the editor.
 	OnCursorMove func(line, col int)
 
+	// OnChange, if non-nil, fires after every buffer mutation routed
+	// through applyChange (Insert, Backspace, DeleteForward, Paste,
+	// Undo/Redo of an edit, ReplaceAll, Reformat, …). The version
+	// argument is a monotonic per-Editor counter that increments by 1
+	// on every fire — hosts can use it to drive LSP textDocument/
+	// didChange notifications, debounce syntax recoloring, or
+	// invalidate caches. Debouncing is the host's responsibility;
+	// firing is the editor's.
+	OnChange func(version int)
+
 	// lastReportedLine / lastReportedCol track what we last sent to
 	// OnCursorMove so we don't fire it on every Draw if the caret
 	// hasn't actually moved.
 	lastReportedLine int
 	lastReportedCol  int
+
+	// changeVersion is the monotonic counter emitted to OnChange. It
+	// is not reset by SetText so consumers can tell "a brand-new
+	// buffer was loaded" apart from "no edits since the editor was
+	// constructed".
+	changeVersion int
 }
 
 // prefixKey tracks the first key of a two-key chord. Zero = none.
@@ -153,7 +169,9 @@ func New(bounds geom.Rect, h, v *views.ScrollBar) *Editor {
 func (e *Editor) GetTypeID() string { return "editor" }
 
 // SetText replaces the buffer. Wipes the undo history because the
-// pre-swap state isn't reachable anymore.
+// pre-swap state isn't reachable anymore. Fires OnChange so consumers
+// (LSP, syntax recolor, dirty-tab tracking) see the swap as one
+// versioned event.
 func (e *Editor) SetText(s string) {
 	e.Data = []byte(s)
 	e.Cursor = 0
@@ -163,6 +181,7 @@ func (e *Editor) SetText(s string) {
 	e.Modified = false
 	e.ResetUndo()
 	e.refreshScroll()
+	e.notifyChange()
 }
 
 // Text returns the buffer as a string.
@@ -337,6 +356,43 @@ func (e *Editor) MoveCursor(pos int, preserveSel bool) {
 	}
 	e.Cursor = pos
 	e.adjustScroll()
+}
+
+// Scroll shifts the viewport by deltaLines without moving the caret.
+// Positive scrolls down (later lines into view), negative scrolls up.
+// Clamps so Top stays in [0, max(0, LineCount-1)]. Hosts that want a
+// host-driven wheel handler (e.g., to translate Shift+wheel into
+// horizontal scroll, page-wheel, etc.) can call this directly instead
+// of synthesizing arrow keys, which would also move the caret.
+func (e *Editor) Scroll(deltaLines int) {
+	if deltaLines == 0 {
+		return
+	}
+	e.Top += deltaLines
+	maxTop := e.LineCount() - 1
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if e.Top > maxTop {
+		e.Top = maxTop
+	}
+	if e.Top < 0 {
+		e.Top = 0
+	}
+	e.refreshScroll()
+}
+
+// wheelStepFor decodes a mouse-wheel event into a signed line delta.
+// Three lines per wheel tick is the conventional terminal step.
+func wheelStepFor(ev *drivers.Event) int {
+	const step = 3
+	if ev.Buttons&consts.MbScrollWheelUp != 0 {
+		return -step
+	}
+	if ev.Buttons&consts.MbScrollWheelDown != 0 {
+		return step
+	}
+	return 0
 }
 
 // adjustScroll ensures Cursor is visible.
@@ -624,6 +680,15 @@ func (e *Editor) HandleEvent(ev *drivers.Event) {
 			e.Owner.Focus(e.Self())
 		}
 		e.Draw()
+		e.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseWheel {
+		// Scroll the viewport without moving the caret. Synthesizing
+		// arrow keys here would shift Cursor as a side-effect — wrong
+		// behavior for a wheel scroll (the user expects the text to
+		// move under the caret, not the caret to chase the wheel).
+		e.Scroll(wheelStepFor(ev))
 		e.ClearEvent(ev)
 		return
 	}

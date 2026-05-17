@@ -35,3 +35,16 @@ func (d *Desktop) InsertWindow(w views.View) {
 	d.Insert(w)
 	d.Focus(w)
 }
+
+// InsertWindowPassive places w on the desktop without changing focus.
+// Used for decorative or background windows (mascots, status overlays,
+// watchlists) that should appear on top of the wallpaper but should
+// NOT steal keyboard focus from whichever window the user is editing
+// in.
+//
+// Z-order still puts w in front of any earlier insertions because new
+// children are appended to the tail of the children list, which the
+// dispatcher and renderer treat as the topmost layer.
+func (d *Desktop) InsertWindowPassive(w views.View) {
+	d.InsertPassive(w)
+}

@@ -59,7 +59,22 @@ type TreeView struct {
 	// has been updated, so reads of t.flat[t.Focused].node inside
 	// the callback return the new node. Nil-safe; never called for
 	// out-of-range indices.
+	//
+	// OnSelect does NOT fire when the click lands on the row that's
+	// already focused — that's a "no focus change" event. For a
+	// file-tree-style "click any file to open it" interaction, wire
+	// OnActivate instead, which fires on every click (and on Enter)
+	// regardless of whether focus moved.
 	OnSelect func(n *Node)
+
+	// OnActivate fires when the user picks a row: every left mouse
+	// click on a visible row (including a click on the already-focused
+	// row) and every Enter keypress. This is the "user committed to a
+	// selection" event — separate from OnSelect's "highlight moved"
+	// semantics so a host can drive "click a file in the tree to open
+	// it in the editor" without forcing the user to first click a
+	// different row to reset focus.
+	OnActivate func(n *Node)
 }
 
 // New constructs an empty tree.
@@ -74,6 +89,11 @@ func New(bounds geom.Rect, roots []*Node) *TreeView {
 	t.SetSelf(t)
 	t.Options |= consts.OfSelectable | consts.OfFirstClick
 	t.State |= consts.SfCursorVis
+	// Match the other "fill the parent's interior" widgets (Editor,
+	// Terminal, MarkdownView): anchor top-left, stretch bottom-right
+	// so the tree resizes with its host window instead of staying at
+	// its initial bounds.
+	t.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
 	t.rebuildFlat()
 	return t
 }
@@ -227,6 +247,13 @@ func (t *TreeView) HandleEvent(ev *drivers.Event) {
 			} else if ev.DoubleClk {
 				t.commit()
 			}
+			// Always fire OnActivate on a row click, even when the
+			// click lands on the already-focused row — the OnSelect
+			// defer above only fires on focus deltas, so without this
+			// re-clicking the current selection would be a no-op.
+			if !onMarker && t.OnActivate != nil {
+				t.OnActivate(row.node)
+			}
 			if t.Owner != nil {
 				t.Owner.Focus(t.Self())
 			}
@@ -259,6 +286,11 @@ func (t *TreeView) HandleEvent(ev *drivers.Event) {
 	case consts.KbEnter:
 		t.Toggle()
 		t.commit()
+		if t.OnActivate != nil {
+			if n := t.CurrentNode(); n != nil {
+				t.OnActivate(n)
+			}
+		}
 	case consts.KbRight:
 		n := t.CurrentNode()
 		if n != nil && !n.Expanded && (n.HasChildren || len(n.Children) > 0) {

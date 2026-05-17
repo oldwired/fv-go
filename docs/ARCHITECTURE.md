@@ -44,6 +44,15 @@ dispatches to `p.HandleEvent` which calls into the view tree's
 `Group.HandleEvent`. The Group hands the event to the focused child;
 mouse hits walk the children by top-most-first.
 
+`OfPreProcess` / `OfPostProcess` apply to keyboard events only: a
+pre-pass over `OfPreProcess` children runs before the focused child,
+and a post-pass over `OfPostProcess` children runs after — both for
+`EvKeyboard` events only. Mouse dispatch is strictly positional;
+there is no global pre/post hook by design (matches Pascal `TGroup`).
+A view that needs to intercept mouse events globally can be inserted
+as a full-parent-bounds child that leaves `ev.What` untouched for
+events it doesn't want to consume.
+
 Postprocess passes catch unconsumed `EvKeyDown` events and look for
 status-line shortcut matches.
 

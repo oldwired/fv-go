@@ -100,6 +100,17 @@ func (e *Editor) applyChange(start, oldEnd int, newBytes []byte, cursorAfter int
 	e.Data = append(e.Data, tail...)
 	e.Cursor = cursorAfter
 	e.Modified = true
+	e.notifyChange()
+}
+
+// notifyChange increments the change counter and fires OnChange.
+// Centralized so applyChange / Undo / Redo all emit a single, ordered
+// version sequence.
+func (e *Editor) notifyChange() {
+	e.changeVersion++
+	if e.OnChange != nil {
+		e.OnChange(e.changeVersion)
+	}
 }
 
 // mergeMode describes how two adjacent changes coalesce.
@@ -181,6 +192,7 @@ func (e *Editor) Undo() {
 	e.SelAnchor = -1
 	e.Modified = e.undoAt > 0
 	e.adjustScroll()
+	e.notifyChange()
 }
 
 // Redo re-applies the next change in the stack. No-op at the top.
@@ -198,6 +210,7 @@ func (e *Editor) Redo() {
 	e.undoAt++
 	e.Modified = true
 	e.adjustScroll()
+	e.notifyChange()
 }
 
 // CanUndo / CanRedo report whether the corresponding action will do

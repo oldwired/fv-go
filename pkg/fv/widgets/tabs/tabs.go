@@ -35,7 +35,12 @@ func New(bounds geom.Rect) *Tabs {
 	views.InitGroup(&t.Group, bounds)
 	t.SetSelf(t)
 	t.Options |= consts.OfSelectable
-	t.GrowMode = consts.GfGrowAll
+	// Anchor top-left, stretch bottom-right. GfGrowAll would translate
+	// the widget (both LoX/LoY and HiX/HiY shift by the parent's resize
+	// delta), leaving the top-left of the container blank and the
+	// bottom-right clipped — wrong for a "fill the parent's interior"
+	// child.
+	t.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
 	return t
 }
 
@@ -73,8 +78,19 @@ func (t *Tabs) DeleteTab(i int) {
 	t.layout()
 }
 
-// Current returns the active tab's index.
-func (t *Tabs) Current() int { return t.current }
+// CurrentIndex returns the active tab's index, or -1 if there are no
+// tabs.
+//
+// This is intentionally NOT named Current(): *Tabs embeds views.Group,
+// which provides Current() views.View — the focused child of the group.
+// The focus-chain walk in Program.placeCursor (and the matching walks
+// in focusWantsRawKeys, helpCtxFromFocus, the tooltip lookup, …)
+// detects walkable nodes via the `interface{ Current() views.View }`
+// assertion. Shadowing that method with a different return type would
+// break the assertion at *Tabs and halt the walk — caret placement,
+// raw-key passthrough, and context-help discovery all stop short of
+// the focused body view inside the active tab.
+func (t *Tabs) CurrentIndex() int { return t.current }
 
 // SetCurrent activates the i-th tab.
 func (t *Tabs) SetCurrent(i int) {

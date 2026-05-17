@@ -253,10 +253,22 @@ const (
 
 // View option flags (Views.pas: TView.Options).
 const (
-	OfSelectable  uint16 = 0x0001
-	OfTopSelect   uint16 = 0x0002
-	OfFirstClick  uint16 = 0x0004
-	OfFramed      uint16 = 0x0008
+	OfSelectable uint16 = 0x0001
+	OfTopSelect  uint16 = 0x0002
+	OfFirstClick uint16 = 0x0004
+	OfFramed     uint16 = 0x0008
+	// OfPreProcess and OfPostProcess apply ONLY to keyboard events.
+	// Group.HandleEvent runs a pre-pass over OfPreProcess children
+	// before the focused child, and a post-pass over OfPostProcess
+	// children after — both for evKeyboard events only.
+	//
+	// Mouse dispatch is positional: it walks children in reverse
+	// z-order and delivers to the topmost child whose bounds contain
+	// the cursor. There is no global mouse pre/post hook by design;
+	// this matches the Pascal TGroup semantics. To intercept mouse
+	// events globally (e.g., translate wheel into arrow keys), insert
+	// a child sized to the parent's full bounds that returns without
+	// ClearEvent for events it does not consume.
 	OfPreProcess  uint16 = 0x0010
 	OfPostProcess uint16 = 0x0020
 	OfBuffered    uint16 = 0x0040

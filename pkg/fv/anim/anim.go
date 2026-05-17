@@ -72,6 +72,15 @@ type Liveness interface {
 // returned redraw=true. Tickers that report Alive()==false are pruned
 // before their interval is checked, so a closed window's gadgets stop
 // burning CPU.
+//
+// Pulse is load-bearing for asynchronous output. The Program's main
+// loop calls Pulse on every idle pass; without that pass, MarkDirty
+// flips fired from non-UI goroutines (PTY readers feeding a Terminal,
+// network workers updating a status widget, …) reach atomic state but
+// never trigger a repaint until the next user keystroke. Tests and
+// alternate event loops that drive the framework directly must call
+// Pulse themselves at a reasonable cadence — otherwise async output
+// appears "stuck" until input arrives.
 func Pulse() bool {
 	now := time.Now()
 	mu.Lock()

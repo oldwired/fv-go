@@ -485,7 +485,7 @@ func showTabs(a *app.Application) {
 				continue
 			case cmDemoCloseTab:
 				if len(tw.Items) > 0 {
-					tw.DeleteTab(tw.Current())
+					tw.DeleteTab(tw.CurrentIndex())
 				}
 				continue
 			case consts.CmOK, consts.CmCancel:

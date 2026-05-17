@@ -174,7 +174,11 @@ do automatically). The return value is the command that ended the
 loop — `CmOK` / `CmCancel` / `CmYes` / `CmNo`.
 
 For modeless windows (the kind you can stack and switch between), use
-`Desktop.InsertWindow(win)` instead.
+`Desktop.InsertWindow(win)` instead. `Desktop.InsertWindowPassive(win)`
+is the same but does NOT take keyboard focus — use it for decorative
+overlays (mascots, status widgets, watchlists) that should sit on top
+of the wallpaper without interrupting whichever window the user is
+typing in.
 
 ## Standard file dialog
 

@@ -70,10 +70,39 @@ func (g *Group) Current() View {
 	return g.Children[g.current]
 }
 
+// CurrentIndex returns the focused child's index in Children, or -1 if
+// nothing is focused. Hosts that want to remember the focus across a
+// modal Insert + Delete pair can snapshot this before opening the
+// modal and re-Focus after Delete returns.
+func (g *Group) CurrentIndex() int { return g.current }
+
 // Insert appends a child. Sets Owner, makes selectable children current
 // if no other child has focus, and updates exposure.
 func (g *Group) Insert(v View) {
 	g.InsertBefore(v, nil)
+}
+
+// InsertPassive appends v without ever taking focus. Use when adding a
+// decorative or non-interactive child to an otherwise-empty group
+// where Insert's auto-focus ("first selectable child becomes current
+// when nothing was focused yet") is the wrong behavior — e.g., a
+// mascot dropped onto an empty Desktop should not steal focus.
+//
+// If the group already has a focused child, this behaves the same as
+// Insert (Insert's auto-focus only triggers when current == -1).
+func (g *Group) InsertPassive(v View) {
+	hadFocus := g.current >= 0
+	g.InsertBefore(v, nil)
+	if hadFocus || v == nil {
+		return
+	}
+	// Insert may have auto-focused v as the first selectable child.
+	// Walk it back.
+	if g.current >= 0 && g.current < len(g.Children) && g.Children[g.current] == v {
+		v.BaseView().State &^= consts.SfSelected | consts.SfFocused
+		g.current = -1
+		g.refreshActive()
+	}
 }
 
 // InnerGroup returns the receiver. Group-embedding views (Window,
@@ -169,12 +198,40 @@ func (g *Group) Delete(v View) {
 			sx, sy := c.BaseView().ScreenOrigin()
 			sw, sh := c.BaseView().Size.X, c.BaseView().Size.Y
 			g.Children = append(g.Children[:i], g.Children[i+1:]...)
+			// Restore focus when the deleted child was current.
+			// Picking index 0 unconditionally would land on a
+			// non-selectable child (e.g., the Desktop's Background)
+			// and dead-end the focus chain — every modal close would
+			// leave the Desktop "focused" on the wallpaper. Scan for
+			// the most-recent selectable sibling instead: walk
+			// backward from the deleted index (modal popups insert at
+			// the end, so the prior focus is to the left), then
+			// forward if no candidate is to the left.
 			if g.current == i {
 				g.current = -1
-				if len(g.Children) > 0 {
-					g.current = 0
-					g.Children[0].BaseView().State |= consts.SfSelected
+				next := -1
+				for j := i - 1; j >= 0; j-- {
+					if g.Children[j].BaseView().Options&consts.OfSelectable != 0 {
+						next = j
+						break
+					}
 				}
+				if next < 0 {
+					for j := i; j < len(g.Children); j++ {
+						if g.Children[j].BaseView().Options&consts.OfSelectable != 0 {
+							next = j
+							break
+						}
+					}
+				}
+				if next >= 0 {
+					g.current = next
+					g.Children[next].BaseView().State |= consts.SfSelected
+				}
+			} else if g.current > i {
+				// The deleted child sat before current; shift index left
+				// to keep pointing at the same view.
+				g.current--
 			}
 			g.refreshActive()
 			c.BaseView().Owner = nil
@@ -252,6 +309,10 @@ func (g *Group) SelectNext(forward bool) {
 // HandleEvent walks children. The order matches Pascal's TGroup:
 //
 //  1. Positional events (mouse) go to the topmost child under the point.
+//     There is no pre/post pass for mouse events — OfPreProcess and
+//     OfPostProcess apply to keyboard events only. To intercept mouse
+//     events globally, insert a full-parent-bounds child that returns
+//     without ClearEvent for events it doesn't want to consume.
 //  2. Keyboard events: views with OfPreProcess get first chance, then
 //     the focused child, then OfPostProcess views.
 //  3. Broadcast / command events: focused child first, then the rest

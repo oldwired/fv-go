@@ -72,6 +72,18 @@ type Program struct {
 	// the panic is re-thrown so the caller still sees it. Hosts can
 	// use this to log a crash report before the process dies.
 	OnPanic func(recovered any)
+
+	// OnResize, if non-nil, fires after every terminal-resize event
+	// (CmResizeApp) has cascaded through ChangeBounds. cols / rows are
+	// the new program-wide dimensions; the GrowMode plumbing on
+	// MenuBar / Desktop / StatusLine has already shifted standard
+	// chrome to the new edges before this fires. Hosts that lay out
+	// multiple panes proportionally (e.g., a 60/40 vertical split)
+	// can recompute and apply their bounds here instead of forcing
+	// every pane into a fragile GrowMode combination, or instead of
+	// installing a phantom view that overrides ChangeBounds to
+	// detect the cascade.
+	OnResize func(cols, rows int)
 }
 
 // Stoppable is implemented by views that own external resources (PTYs,
@@ -324,6 +336,9 @@ func (p *Program) Run() {
 		if ev.What == consts.EvCommand && ev.Command == consts.CmResizeApp {
 			if pt, ok := ev.InfoPtr.(geom.Point); ok {
 				p.ChangeBounds(geom.NewRect(0, 0, pt.X, pt.Y))
+				if p.OnResize != nil {
+					p.OnResize(pt.X, pt.Y)
+				}
 			}
 			p.dirty.Store(true)
 			continue

@@ -276,10 +276,21 @@ func (t *Terminal) BracketedPaste() bool {
 	return t.buf.bracketedPaste
 }
 
-// Paste writes text to the PTY, wrapping in bracketed-paste escapes
-// (\x1b[200~ … \x1b[201~) when the inner program has enabled DEC mode
-// ?2004. Without bracketing, multiline pastes execute line-by-line in
-// shells — broken UX.
+// Paste writes text to the PTY's stdin, wrapping in bracketed-paste
+// escapes (\x1b[200~ … \x1b[201~) when the inner program has enabled
+// DEC mode ?2004. Without bracketing, multiline pastes execute
+// line-by-line in shells — broken UX.
+//
+// This is "the user pasted clipboard text into the shell" — the text
+// goes through the child program just like keyboard input would.
+// pane.Paste("ls\n") makes the shell run `ls`, not display the
+// literal "ls" in the buffer. To render text directly into the
+// terminal's display without involving the child process, see
+// Terminal.Write.
+//
+// SendInput is an alias whose name matches the actual behavior more
+// directly; new code should prefer it. Paste is kept for symmetry
+// with the host-side clipboard story.
 func (t *Terminal) Paste(text string) error {
 	if t.pty == nil {
 		return nil
@@ -299,6 +310,14 @@ func (t *Terminal) Paste(text string) error {
 	_, err := t.pty.Write(payload)
 	return err
 }
+
+// SendInput is an alias for Paste — both write text to the PTY's
+// stdin so the child process sees it as keyboard input. Use SendInput
+// when the call site reads more naturally that way (e.g., scripted
+// driving of a shell or REPL). To render text directly into the
+// display buffer without going through the child process, use Write
+// instead.
+func (t *Terminal) SendInput(text string) error { return t.Paste(text) }
 
 // ScrollbackText returns the entire buffer (scrollback + live region)
 // as plain text. Trailing blanks per row are trimmed; rows are
@@ -1258,8 +1277,14 @@ func (t *Terminal) drawStatusRow(s string) {
 }
 
 // Write injects bytes into the parser as if they came from the PTY.
-// Useful for tests and for replaying a captured session — not used by
-// the live view.
+// Useful for tests, for replaying a captured session, or for using
+// the Terminal widget as a styled log viewer — VT escape sequences in
+// p are interpreted by the parser the same way a real shell's output
+// would be. The bytes are NOT forwarded to the PTY's stdin, so the
+// child shell does not see them and will not echo or react to them.
+//
+// Compare with Paste / SendInput, which write to the child's stdin
+// (the shell sees them as keystrokes).
 func (t *Terminal) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

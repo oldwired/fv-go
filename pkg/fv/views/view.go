@@ -68,6 +68,13 @@ type Base struct {
 	DragMode byte
 	HelpCtx  uint16
 
+	// EventMask is currently advisory: Group.HandleEvent does NOT use
+	// it to filter dispatch. Existing widgets set it to document the
+	// event classes they care about, but a view will still receive any
+	// event that the group's dispatch rules deliver to it (positional
+	// for mouse, focused/pre/post for keyboard, broadcast to all).
+	// Concrete HandleEvent implementations should early-return on
+	// event types they don't handle.
 	EventMask uint16
 	Commands  drivers.CommandSet
 

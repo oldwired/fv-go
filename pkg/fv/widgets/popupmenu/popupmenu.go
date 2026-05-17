@@ -17,6 +17,17 @@ import (
 // PopupMenu shows a list of items in a small framed box. The user
 // types to filter incrementally; arrows / enter pick. Returns the
 // chosen item's index from Run.
+//
+// Two activation modes:
+//   - Run(host) is a modal blocking loop — the popup owns the event
+//     loop until the user picks or cancels. Use for one-shot menus
+//     like ComboBox dropdowns, history pickers, and right-click
+//     context menus.
+//   - Open(host) is non-modal: the popup is just a regular child of
+//     host, drawn on top, and events from the host's loop reach it
+//     via OfPreProcess. Use for IntelliSense / autocomplete pop-ups
+//     that need to coexist with continued typing in the underlying
+//     editor — see Open's docstring for the call pattern.
 type PopupMenu struct {
 	views.Base
 
@@ -24,6 +35,22 @@ type PopupMenu struct {
 	current int
 	filter  string
 	visible []int // indices of items matching filter
+
+	// nonModal toggles Open's "let unhandled events fall through to
+	// the editor underneath" behavior. Set by Open, never by Run.
+	nonModal bool
+
+	// OnSelect, when non-modal, fires when the user picks an item via
+	// Enter or click. idx is the original Items index (not the
+	// filtered position). Closing the popup after firing is the
+	// host's job — call Close() inside the callback. Modal Run
+	// ignores this (it returns the index instead).
+	OnSelect func(idx int, label string)
+
+	// OnCancel, when non-modal, fires when the user presses Esc or
+	// otherwise dismisses without picking. Hosts typically call
+	// Close() from this. Modal Run ignores this.
+	OnCancel func()
 
 	Color, FrameColor, SelColor uint16
 }
@@ -62,6 +89,135 @@ func New(origin geom.Point, items []string, maxWidth int) *PopupMenu {
 
 // GetTypeID for serial registry.
 func (p *PopupMenu) GetTypeID() string { return "popupmenu" }
+
+// Open inserts the popup as a non-modal child of host and returns
+// immediately. The host's main event loop drives the popup via the
+// normal OfPreProcess path; the popup fires OnSelect / OnCancel when
+// the user picks or dismisses, and the host is expected to call
+// Close() from those callbacks (or whenever else it wants to dismiss
+// the popup — focus loss, cursor leaving the trigger range, …).
+//
+// Unhandled events fall through to the host: typing letters that
+// don't match a filter narrowing still reaches the underlying
+// editor / input line, so an IntelliSense popup can stay open while
+// the user keeps typing.
+//
+// Typical IntelliSense / autocomplete shape:
+//
+//	pm := popupmenu.New(anchor, items, maxW)
+//	pm.OnSelect = func(idx int, label string) {
+//	    editor.Insert(label[len(prefix):])
+//	    pm.Close()
+//	}
+//	pm.OnCancel = func() { pm.Close() }
+//	pm.Open(host)
+//	// later, as the user types:
+//	pm.Filter(currentPrefix)
+func (p *PopupMenu) Open(host *views.Group) {
+	p.nonModal = true
+	host.Insert(p)
+}
+
+// Close removes the popup from its owner. Safe to call multiple times
+// (no-op if already detached). Hosts should call this from OnSelect /
+// OnCancel and from any other path that should dismiss the popup
+// (focus moved away, cursor stepped out of the trigger range, the
+// user pressed Esc on an enclosing dialog, …).
+func (p *PopupMenu) Close() {
+	if p.Owner != nil {
+		p.Owner.Delete(p)
+	}
+}
+
+// Filter narrows the visible items to those containing prefix
+// (case-insensitively). Idempotent and cheap; call it on every
+// keystroke from the host's HandleEvent.
+func (p *PopupMenu) Filter(prefix string) {
+	if p.filter == prefix {
+		return
+	}
+	p.filter = prefix
+	p.recalcVisible()
+	views.MarkDirty()
+}
+
+// VisibleCount reports how many items currently survive the filter.
+// Hosts use this to decide whether to auto-Close the popup (filter
+// dropped to zero matches → nothing to pick; either show a "no
+// results" state or dismiss).
+func (p *PopupMenu) VisibleCount() int { return len(p.visible) }
+
+// HandleEvent dispatches a single event when the popup is open
+// non-modally. Mouse clicks inside the popup pick an item; Enter
+// picks the currently-highlighted one; arrows / Home / End move the
+// highlight; Esc cancels. Keystrokes that don't match any of those
+// roles are left untouched so they continue to the underlying view —
+// this is what lets an IntelliSense popup stay open while the user
+// types into the editor below it.
+//
+// In modal mode (Run), this is bypassed: Run reads events from the
+// queue directly and never calls back into HandleEvent.
+func (p *PopupMenu) HandleEvent(ev *drivers.Event) {
+	if !p.nonModal {
+		return
+	}
+	switch ev.What {
+	case consts.EvMouseDown:
+		local := p.MakeLocal(ev.Where)
+		if local.X < 0 || local.Y < 0 || local.X >= p.Size.X || local.Y >= p.Size.Y {
+			// Click outside the popup is a cancel.
+			if p.OnCancel != nil {
+				p.OnCancel()
+			}
+			p.ClearEvent(ev)
+			return
+		}
+		if local.Y >= 1 && local.Y-1 < len(p.visible) &&
+			local.X > 0 && local.X < p.Size.X-1 {
+			idx := p.visible[local.Y-1]
+			if p.OnSelect != nil {
+				p.OnSelect(idx, p.Items[idx])
+			}
+		}
+		p.ClearEvent(ev)
+	case consts.EvKeyDown:
+		switch ev.KeyCode {
+		case consts.KbEsc:
+			if p.OnCancel != nil {
+				p.OnCancel()
+			}
+			p.ClearEvent(ev)
+		case consts.KbEnter:
+			if p.current >= 0 && p.current < len(p.visible) {
+				idx := p.visible[p.current]
+				if p.OnSelect != nil {
+					p.OnSelect(idx, p.Items[idx])
+				}
+			}
+			p.ClearEvent(ev)
+		case consts.KbUp:
+			if p.current > 0 {
+				p.current--
+				views.MarkDirty()
+			}
+			p.ClearEvent(ev)
+		case consts.KbDown:
+			if p.current+1 < len(p.visible) {
+				p.current++
+				views.MarkDirty()
+			}
+			p.ClearEvent(ev)
+		case consts.KbHome:
+			p.current = 0
+			views.MarkDirty()
+			p.ClearEvent(ev)
+		case consts.KbEnd:
+			p.current = len(p.visible) - 1
+			views.MarkDirty()
+			p.ClearEvent(ev)
+		}
+	}
+}
 
 // Run inserts the popup as a child of host and runs a modal-style loop
 // until the user picks (returns chosen item index) or cancels (-1).
