@@ -53,6 +53,8 @@ func titleFor(mt MessageType) string {
 		return "Error"
 	case Question:
 		return "Confirm"
+	case Info:
+		return "Information"
 	}
 	return "Information"
 }

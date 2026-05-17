@@ -377,11 +377,11 @@ func parseInline(raw string, pal *theme.Palette) (string, []span) {
 		// honor OSC 8 light up the alt text as clickable.
 		if c == '!' && i+1 < len(raw) && raw[i+1] == '[' {
 			if rb := strings.Index(raw[i+2:], "]"); rb >= 0 {
-				close := i + 2 + rb
-				if close+1 < len(raw) && raw[close+1] == '(' {
-					if rp := strings.Index(raw[close+2:], ")"); rp >= 0 {
-						alt := raw[i+2 : close]
-						url := raw[close+2 : close+2+rp]
+				closeTok := i + 2 + rb
+				if closeTok+1 < len(raw) && raw[closeTok+1] == '(' {
+					if rp := strings.Index(raw[closeTok+2:], ")"); rp >= 0 {
+						alt := raw[i+2 : closeTok]
+						url := raw[closeTok+2 : closeTok+2+rp]
 						start := b.Len()
 						b.WriteString("🖼 ")
 						b.WriteString(alt)
@@ -389,7 +389,7 @@ func parseInline(raw string, pal *theme.Palette) (string, []span) {
 							Start: start, End: b.Len(),
 							Attr: pal.MarkdownImage, URL: url,
 						})
-						i = close + 2 + rp + 1
+						i = closeTok + 2 + rp + 1
 						continue
 					}
 				}
@@ -402,12 +402,12 @@ func parseInline(raw string, pal *theme.Palette) (string, []span) {
 		// don't support OSC 8.
 		if c == '[' {
 			if rb := strings.Index(raw[i+1:], "]"); rb >= 0 {
-				close := i + 1 + rb
-				if close+1 < len(raw) && raw[close+1] == '(' {
-					if rp := strings.Index(raw[close+2:], ")"); rp >= 0 {
-						url := raw[close+2 : close+2+rp]
-						emit(raw[i+1:close], pal.MarkdownLink, linkExt(), url)
-						i = close + 2 + rp + 1
+				closeTok := i + 1 + rb
+				if closeTok+1 < len(raw) && raw[closeTok+1] == '(' {
+					if rp := strings.Index(raw[closeTok+2:], ")"); rp >= 0 {
+						url := raw[closeTok+2 : closeTok+2+rp]
+						emit(raw[i+1:closeTok], pal.MarkdownLink, linkExt(), url)
+						i = closeTok + 2 + rp + 1
 						continue
 					}
 				}
@@ -805,6 +805,8 @@ func tableDataRow(cells []parsedCell, widths []int, aligns []Alignment, cellAttr
 			leftPad, rightPad = pad, 0
 		case AlignCenter:
 			leftPad, rightPad = pad/2, pad-pad/2
+		case AlignLeft:
+			// leftPad/rightPad already initialized for left-aligned.
 		}
 		// Surrounding cell margin spaces.
 		bodyStart := sb.Len()
@@ -1237,12 +1239,12 @@ func (m *MarkdownView) scrollBy(d int) {
 	if m.Top < 0 {
 		m.Top = 0
 	}
-	max := len(m.lines) - m.Size.Y
-	if max < 0 {
-		max = 0
+	maxTop := len(m.lines) - m.Size.Y
+	if maxTop < 0 {
+		maxTop = 0
 	}
-	if m.Top > max {
-		m.Top = max
+	if m.Top > maxTop {
+		m.Top = maxTop
 	}
 	m.refreshScroll()
 	m.Draw()

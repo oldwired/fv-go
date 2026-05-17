@@ -165,11 +165,11 @@ type paletteEntry struct{ r, g, b uint8 }
 // gain (the dither pass is what makes it look right).
 func buildMedianCutPalette(pixels []rgbInt16, w, h int, maxColors int) []paletteEntry {
 	sample := pixels
-	const cap = 16384
-	if len(pixels) > cap {
-		sample = make([]rgbInt16, cap)
-		step := len(pixels) / cap
-		for i := 0; i < cap; i++ {
+	const sampleCap = 16384
+	if len(pixels) > sampleCap {
+		sample = make([]rgbInt16, sampleCap)
+		step := len(pixels) / sampleCap
+		for i := 0; i < sampleCap; i++ {
 			sample[i] = pixels[i*step]
 		}
 	}

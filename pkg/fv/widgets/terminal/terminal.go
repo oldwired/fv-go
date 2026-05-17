@@ -1267,10 +1267,5 @@ func (t *Terminal) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Buffer returns the underlying buffer for tests/inspection. Not
-// goroutine-safe: callers should hold no lock and assume the buffer
-// can mutate from the read loop concurrently.
-func (t *Terminal) Buffer() *buffer { return t.buf }
-
 // Ensure DrawCell satisfies the basic Ch-set assumption.
 var _ = types.DrawCell{}

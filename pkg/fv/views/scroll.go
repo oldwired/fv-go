@@ -387,10 +387,3 @@ func (l *ListViewer) HandleEvent(ev *drivers.Event) {
 	}
 	l.Group.HandleEvent(ev)
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

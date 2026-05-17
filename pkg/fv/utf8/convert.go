@@ -25,7 +25,10 @@ func ANSIToUTF8(data []byte) []byte {
 		case b < 0x80:
 			out = append(out, b)
 			continue
-		case b >= 0x80 && b < 0xA0:
+		case b < 0xA0:
+			// Reached only when b >= 0x80 — the prior arm `continue`d
+			// out of the lower range. CP1252's non-Latin range is
+			// 0x80–0x9F; values at 0xA0+ are already Latin-1.
 			r = cp1252Map[b-0x80]
 		default:
 			r = rune(b)
@@ -85,6 +88,10 @@ func ConvertToUTF8(data []byte, enc FileEncoding) []byte {
 		return UTF16BEToUTF8(data, true)
 	case EncANSI:
 		return ANSIToUTF8(data)
+	case EncUnknown:
+		// Unknown encoding → best-effort pass-through. Either the
+		// caller hasn't run a detection pass yet or the file lacks
+		// a BOM and isn't valid UTF-8; we leave the bytes intact.
 	}
 	return data
 }

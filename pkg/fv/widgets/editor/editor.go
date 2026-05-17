@@ -18,6 +18,7 @@ package editor
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	stdutf8 "unicode/utf8"
 
@@ -95,6 +96,25 @@ type Editor struct {
 	// Two-keystroke prefix state. When non-zero, the next key is the
 	// digit operand for a Ctrl+K / Ctrl+Q chord.
 	prefix prefixKey
+
+	// ShowPosition, when true, paints a "line:col" indicator in the
+	// bottom-right corner of the editor bounds (1-indexed, classical
+	// Turbo-Pascal style). The overlay covers whatever editor content
+	// would otherwise occupy those ~10 cells. Use Position() +
+	// OnCursorMove if you'd rather route the indicator into your
+	// app's status line.
+	ShowPosition bool
+
+	// OnCursorMove, if non-nil, fires whenever the caret moves to a
+	// new (line, col). Both are 1-indexed. Useful for syncing a
+	// status-line position indicator with the editor.
+	OnCursorMove func(line, col int)
+
+	// lastReportedLine / lastReportedCol track what we last sent to
+	// OnCursorMove so we don't fire it on every Draw if the caret
+	// hasn't actually moved.
+	lastReportedLine int
+	lastReportedCol  int
 }
 
 // prefixKey tracks the first key of a two-key chord. Zero = none.
@@ -230,6 +250,14 @@ func (e *Editor) lineEnd(pos int) int {
 		}
 	}
 	return len(e.Data)
+}
+
+// Position returns the caret's 1-indexed line and column for status-line
+// integration. Matches the indicator style of classical TUI editors
+// (Turbo Pascal et al.). Column is the display column — tabs expand,
+// wide runes count for 2.
+func (e *Editor) Position() (line, col int) {
+	return e.lineNumber(e.Cursor) + 1, e.columnAt(e.Cursor) + 1
 }
 
 // lineNumber returns the 0-based line containing pos.
@@ -403,7 +431,56 @@ func (e *Editor) Draw() {
 		}
 		e.WriteLine(0, r, e.Size.X, 1, buf)
 	}
+	e.drawPositionOverlay()
+	e.notifyCursorMove()
 	e.placeCursor()
+}
+
+// drawPositionOverlay paints a "line:col" indicator in the bottom-right
+// of the editor bounds when ShowPosition is true. Style matches the
+// classical Turbo-Pascal IDE: a small block of inverse-video cells
+// glued to the corner. We paint after the line loop so the indicator
+// always wins over whatever text would have been there.
+func (e *Editor) drawPositionOverlay() {
+	if !e.ShowPosition || e.Size.Y <= 0 || e.Size.X <= 0 {
+		return
+	}
+	line, col := e.Position()
+	label := strconv.Itoa(line) + ":" + strconv.Itoa(col)
+	// Width budget: label + 1 space of padding on each side. If the
+	// editor is narrower than the label, paint as much as fits.
+	pad := 1
+	w := len(label) + pad*2
+	if w > e.Size.X {
+		w = e.Size.X
+	}
+	startX := e.Size.X - w
+	row := e.Size.Y - 1
+	buf := screen.MakeDrawBuffer(w)
+	pal := theme.Get()
+	attr := pal.EditorSelected // inverse-ish; visually distinct from body
+	for x := 0; x < w; x++ {
+		screen.DrawCell(buf, x, " ", attr)
+	}
+	screen.DrawStr(buf, pad, label, attr)
+	e.WriteLine(startX, row, w, 1, buf)
+}
+
+// notifyCursorMove fires OnCursorMove when the caret's 1-indexed
+// position has changed since the last Draw. The position-overlay
+// repaint already happens unconditionally; this hook is for hosts
+// that want to forward to a StatusLine entry, etc.
+func (e *Editor) notifyCursorMove() {
+	if e.OnCursorMove == nil {
+		return
+	}
+	line, col := e.Position()
+	if line == e.lastReportedLine && col == e.lastReportedCol {
+		return
+	}
+	e.lastReportedLine = line
+	e.lastReportedCol = col
+	e.OnCursorMove(line, col)
 }
 
 func (e *Editor) placeCursor() {

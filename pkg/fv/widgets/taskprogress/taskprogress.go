@@ -131,11 +131,11 @@ func (t *TaskProgress) Draw() {
 			}
 			screen.DrawStr(buf, 0, icon+" ", t.HeaderColor)
 			// Caption, max 24 chars.
-			cap := task.Caption
-			if len(cap) > 24 {
-				cap = cap[:24]
+			caption := task.Caption
+			if len(caption) > 24 {
+				caption = caption[:24]
 			}
-			screen.DrawStr(buf, 2, cap, t.HeaderColor)
+			screen.DrawStr(buf, 2, caption, t.HeaderColor)
 			// Bar.
 			barX := 28
 			barW := t.Size.X - barX - 14

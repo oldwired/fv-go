@@ -93,6 +93,10 @@ func FromTermEvent(t term.Event) Event {
 		if t.Truncated {
 			e.InfoByte = consts.PasteTruncated
 		}
+	default:
+		// term.EventNone (zero value) and any future kind we haven't
+		// taught the view layer to care about — return Event with
+		// What == EvNothing, the documented "ignore this" sentinel.
 	}
 	return e
 }
@@ -198,6 +202,10 @@ func mapKey(k term.Key, mods term.ModBits) uint16 {
 		return consts.KbF11
 	case term.KeyF12:
 		return consts.KbF12
+	default:
+		// term.KeyNone (zero value, "character key, see Rune") and
+		// anything we don't have a legacy FV scancode for — fall
+		// through to the bare-rune dispatch in the caller.
 	}
 	return 0
 }

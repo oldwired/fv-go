@@ -81,6 +81,8 @@ func (t *ToggleSwitch) switchVisual() string {
 			return "[ON ]"
 		}
 		return "[OFF]"
+	case StyleSlider:
+		// fall through to the slider default below.
 	}
 	if t.Value {
 		return "[───●]"

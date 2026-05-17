@@ -31,7 +31,7 @@ const (
 func main() {
 	a, err := app.NewApplication()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "fvdemo:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "fvdemo:", err)
 		os.Exit(1)
 	}
 	defer a.Done()

@@ -454,9 +454,9 @@ func (b *buffer) insertLines(n int) {
 	if n < 1 {
 		n = 1
 	}
-	max := b.scrollBot - b.cursorR + 1
-	if n > max {
-		n = max
+	maxLines := b.scrollBot - b.cursorR + 1
+	if n > maxLines {
+		n = maxLines
 	}
 	for y := b.scrollBot; y >= b.cursorR+n; y-- {
 		copy(b.cells[y], b.cells[y-n])
@@ -476,9 +476,9 @@ func (b *buffer) deleteLines(n int) {
 	if n < 1 {
 		n = 1
 	}
-	max := b.scrollBot - b.cursorR + 1
-	if n > max {
-		n = max
+	maxLines := b.scrollBot - b.cursorR + 1
+	if n > maxLines {
+		n = maxLines
 	}
 	for y := b.cursorR; y <= b.scrollBot-n; y++ {
 		copy(b.cells[y], b.cells[y+n])

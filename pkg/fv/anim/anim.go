@@ -89,13 +89,13 @@ func Pulse() bool {
 	}
 	entries = live
 	mu.Unlock()
-	any := false
+	fired := false
 	for _, e := range due {
 		if e.t.Tick(now) {
-			any = true
+			fired = true
 		}
 	}
-	return any
+	return fired
 }
 
 // MinInterval returns the shortest registered interval, or 0 if no

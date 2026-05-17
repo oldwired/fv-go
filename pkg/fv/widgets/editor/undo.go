@@ -84,6 +84,9 @@ func (e *Editor) applyChange(start, oldEnd int, newBytes []byte, cursorAfter int
 			prev.cursorAfter = ch.cursorAfter
 			prev.timestamp = ch.timestamp
 			merged = true
+		case mergeNone:
+			// Adjacent edits aren't coalescable — fall through to
+			// the no-merge path below where we push a fresh entry.
 		}
 	}
 	if !merged {

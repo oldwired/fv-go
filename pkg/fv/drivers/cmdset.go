@@ -6,10 +6,17 @@ package drivers
 // which commands they currently handle (`EnableCommand` / `DisableCommand`).
 // FV's command IDs above 255 (cmFileOpen=800 etc.) are not part of the
 // per-view command set — they're broadcast events.
+//
+// All methods use pointer receivers for consistency. Mutators (Set,
+// Clear, SetRange) need them; the readers (Has, Union, Intersect,
+// Diff, Equals) are pointer-receiver too so the method set is uniform
+// regardless of how the type is used (per the Go review guide:
+// "if some of the methods must have pointer receivers, the rest
+// should too").
 type CommandSet [32]byte
 
 // Has reports whether cmd is in the set.
-func (cs CommandSet) Has(cmd uint16) bool {
+func (cs *CommandSet) Has(cmd uint16) bool {
 	if cmd > 255 {
 		return false
 	}
@@ -33,7 +40,7 @@ func (cs *CommandSet) Clear(cmd uint16) {
 }
 
 // Union returns cs ∪ other.
-func (cs CommandSet) Union(other CommandSet) CommandSet {
+func (cs *CommandSet) Union(other CommandSet) CommandSet {
 	var out CommandSet
 	for i := range cs {
 		out[i] = cs[i] | other[i]
@@ -42,7 +49,7 @@ func (cs CommandSet) Union(other CommandSet) CommandSet {
 }
 
 // Intersect returns cs ∩ other.
-func (cs CommandSet) Intersect(other CommandSet) CommandSet {
+func (cs *CommandSet) Intersect(other CommandSet) CommandSet {
 	var out CommandSet
 	for i := range cs {
 		out[i] = cs[i] & other[i]
@@ -51,7 +58,7 @@ func (cs CommandSet) Intersect(other CommandSet) CommandSet {
 }
 
 // Diff returns cs \ other.
-func (cs CommandSet) Diff(other CommandSet) CommandSet {
+func (cs *CommandSet) Diff(other CommandSet) CommandSet {
 	var out CommandSet
 	for i := range cs {
 		out[i] = cs[i] &^ other[i]
@@ -60,8 +67,8 @@ func (cs CommandSet) Diff(other CommandSet) CommandSet {
 }
 
 // Equals reports value-equality.
-func (cs CommandSet) Equals(other CommandSet) bool {
-	return cs == other
+func (cs *CommandSet) Equals(other CommandSet) bool {
+	return *cs == other
 }
 
 // SetRange enables commands in [lo, hi].

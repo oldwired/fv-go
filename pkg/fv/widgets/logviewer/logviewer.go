@@ -285,14 +285,14 @@ func (l *LogViewer) scrollBy(d int) {
 	if l.Top < 0 {
 		l.Top = 0
 	}
-	max := l.visibleCount() - l.Size.Y
-	if max < 0 {
-		max = 0
+	maxTop := l.visibleCount() - l.Size.Y
+	if maxTop < 0 {
+		maxTop = 0
 	}
-	if l.Top > max {
-		l.Top = max
+	if l.Top > maxTop {
+		l.Top = maxTop
 	}
-	l.AutoScroll = l.Top >= max
+	l.AutoScroll = l.Top >= maxTop
 	l.mu.Unlock()
 	l.Draw()
 }
@@ -300,11 +300,4 @@ func (l *LogViewer) scrollBy(d int) {
 // Logf is a fmt.Sprintf-style helper.
 func (l *LogViewer) Logf(level Level, source, format string, args ...any) {
 	l.Append(level, source, fmt.Sprintf(format, args...))
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

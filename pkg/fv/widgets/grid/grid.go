@@ -1280,6 +1280,8 @@ func alignText(s string, width int, align Alignment) string {
 	case AlignCenter:
 		l := pad / 2
 		return spaces(l) + s + spaces(pad-l)
+	case AlignLeft:
+		// fall through to the left-padded default below.
 	}
 	return s + spaces(pad)
 }
@@ -1586,6 +1588,8 @@ func (g *StringGrid) handleMouseMove(ev *drivers.Event) {
 			}
 		}
 		g.ClearEvent(ev)
+	case dragNone:
+		// No drag in flight — ignore the move event.
 	}
 }
 
@@ -1782,17 +1786,17 @@ func (g *StringGrid) AutoFitColumn(col int) {
 	if col < 0 || col >= len(g.Columns) {
 		return
 	}
-	max := utf8.StringDisplayWidth(g.Columns[col].Title)
+	maxWidth := utf8.StringDisplayWidth(g.Columns[col].Title)
 	g.ensureVisible()
 	for _, raw := range g.visibleRows {
 		w := utf8.StringDisplayWidth(g.rawCell(raw, col))
-		if w > max {
-			max = w
+		if w > maxWidth {
+			maxWidth = w
 		}
 	}
 	// Add 2 cells of padding (the leading space + divider) so text
 	// doesn't sit flush against the dividers.
-	g.Columns[col].Width = clampWidth(&g.Columns[col], max+2)
+	g.Columns[col].Width = clampWidth(&g.Columns[col], maxWidth+2)
 	g.markDirty()
 }
 

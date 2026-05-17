@@ -60,19 +60,19 @@ func (s *Sparkline) SetValues(v []float64) {
 
 // Draw paints the sparkline over the topmost row of bounds.
 func (s *Sparkline) Draw() {
-	min, max := s.Min, s.Max
+	minVal, maxVal := s.Min, s.Max
 	if s.AutoScale && len(s.Values) > 0 {
-		min, max = s.Values[0], s.Values[0]
+		minVal, maxVal = s.Values[0], s.Values[0]
 		for _, v := range s.Values {
-			if v < min {
-				min = v
+			if v < minVal {
+				minVal = v
 			}
-			if v > max {
-				max = v
+			if v > maxVal {
+				maxVal = v
 			}
 		}
-		if max == min {
-			max = min + 1
+		if maxVal == minVal {
+			maxVal = minVal + 1
 		}
 	}
 	w := s.Size.X
@@ -87,7 +87,7 @@ func (s *Sparkline) Draw() {
 		screen.DrawCell(buf, x, " ", s.Color)
 	}
 	for i, v := range s.Values[start:] {
-		level := int((v - min) * 8 / (max - min))
+		level := int((v - minVal) * 8 / (maxVal - minVal))
 		if level < 0 {
 			level = 0
 		}

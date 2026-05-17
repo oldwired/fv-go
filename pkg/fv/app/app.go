@@ -487,7 +487,7 @@ func (p *Program) MarkDirty() { p.dirty.Store(true) }
 // one event was pushed — the idle loop uses that to decide whether
 // it needs to redraw.
 func (p *Program) pump() bool {
-	any := false
+	pushed := false
 	for {
 		select {
 		case te := <-p.backend.Events():
@@ -497,10 +497,10 @@ func (p *Program) pump() bool {
 						p.OnEventDropped(e)
 					}
 				}
-				any = true
+				pushed = true
 			}
 		default:
-			return any
+			return pushed
 		}
 	}
 }
@@ -638,6 +638,10 @@ type Application struct {
 func NewApplication() (*Application, error) {
 	be := term.New()
 	if err := be.Init(); err != nil {
+		// Best-effort cleanup of any partial state from a failed Init.
+		// Backend Close is idempotent, so a no-op on full failure is
+		// safe; on partial init it tears down whatever was acquired.
+		_ = be.Close()
 		return nil, err
 	}
 	a := &Application{Program: NewProgram(be)}

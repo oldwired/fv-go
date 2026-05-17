@@ -44,12 +44,15 @@ func showEditor(a *app.Application) {
 	scroll := views.NewScrollBar(geom.NewRect(w-2, 1, w-1, h-1))
 	win.Insert(scroll)
 	ed := editor.New(geom.NewRect(1, 1, w-2, h-1), nil, scroll)
+	ed.ShowPosition = true
 	ed.SetText(
 		"# fv-go editor demo\n\n" +
 			"Type freely. Up/Down/Left/Right move; Home/End jump; PgUp/PgDn page.\n" +
 			"Hold Shift while moving to extend a selection.\n" +
 			"Ctrl+C / Ctrl+X / Ctrl+V copy / cut / paste through the clipboard.\n" +
 			"Ctrl+A selects everything; Ctrl+Home / Ctrl+End jump to top/bottom.\n\n" +
+			"The bottom-right corner shows the caret as line:col (1-indexed),\n" +
+			"classical Turbo-Pascal style. Toggle via ed.ShowPosition.\n\n" +
 			"This editor handles UTF-8 natively. Try é, 日本語, ✨ — all fine.\n",
 	)
 	win.Insert(ed)

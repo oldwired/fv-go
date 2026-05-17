@@ -84,7 +84,9 @@ func (c *DrawCell) SetUnderlineStyle(style byte) {
 }
 
 // UnderlineStyle reads the underline style nibble from ExtAttrs.
-func (c DrawCell) UnderlineStyle() byte {
+// Pointer receiver for consistency with SetUnderlineStyle so the
+// method set is uniform — same rationale as CommandSet.
+func (c *DrawCell) UnderlineStyle() byte {
 	return (c.ExtAttrs & EAUnderMask) >> EAUnderShift
 }
 

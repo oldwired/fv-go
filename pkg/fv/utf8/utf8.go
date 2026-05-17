@@ -70,6 +70,8 @@ func BOMLength(enc FileEncoding) int {
 		return 3
 	case EncUTF16LE, EncUTF16BE:
 		return 2
+	case EncUnknown, EncUTF8, EncANSI:
+		// No BOM for any of these.
 	}
 	return 0
 }

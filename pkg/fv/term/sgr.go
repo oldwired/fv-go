@@ -76,8 +76,10 @@ func encodeFG(cs profile.ColorSystem, idx byte, rgb uint32) []string {
 			return []string{"38", "2", strconv.Itoa(int(r)), strconv.Itoa(int(g)), strconv.Itoa(int(bl))}
 		case profile.EightBit:
 			return []string{"38", "5", strconv.Itoa(int(rgbTo256(rgb)))}
+		case profile.NoColors, profile.Legacy:
+			// fall through to legacy mapping below — NoColors is
+			// already filtered above the switch; Legacy reaches here.
 		}
-		// fall through to legacy mapping
 		idx = rgbToLegacy(rgb)
 	}
 	return []string{strconv.Itoa(int(legacyFGCode(idx)))}
@@ -94,6 +96,8 @@ func encodeBG(cs profile.ColorSystem, idx byte, rgb uint32) []string {
 			return []string{"48", "2", strconv.Itoa(int(r)), strconv.Itoa(int(g)), strconv.Itoa(int(bl))}
 		case profile.EightBit:
 			return []string{"48", "5", strconv.Itoa(int(rgbTo256(rgb)))}
+		case profile.NoColors, profile.Legacy:
+			// see encodeFG; same fall-through to legacyBG mapping.
 		}
 		idx = rgbToLegacy(rgb)
 	}
