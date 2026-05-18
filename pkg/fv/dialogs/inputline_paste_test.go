@@ -32,6 +32,31 @@ func TestInputLinePasteRespectsValidator(t *testing.T) {
 	}
 }
 
+// TestInputLineCellColumnForRegionalFlag verifies the rune-index→
+// cell-column translation used by Draw to place the cursor. The
+// flag 🇩🇪 is a single grapheme cluster of 2 runes that takes 2
+// cells. Setting CurPos to 2 (just past both runes of the flag) must
+// place the visible caret 2 cells to the right of the field's left
+// edge (column 1 = first content column + 2 = column 3 in the
+// rendered output).
+func TestInputLineCellColumnForRegionalFlag(t *testing.T) {
+	il := NewInputLine(geom.NewRect(0, 0, 20, 1), 32)
+	// 🇩🇪 — two regional-indicator runes forming one wide cluster.
+	il.Data = []rune("\U0001F1E9\U0001F1EA")
+	il.CurPos = 2 // past both runes of the flag
+
+	got := il.cellColumnForRuneIndex(il.CurPos)
+	if got != 2 {
+		t.Errorf("cellColumnForRuneIndex(past flag) = %d, want 2 (cluster is one 2-cell glyph)", got)
+	}
+
+	// Cursor in the middle of the cluster (rune index 1) should
+	// snap to the cluster's leading edge — cell column 0.
+	if got := il.cellColumnForRuneIndex(1); got != 0 {
+		t.Errorf("cellColumnForRuneIndex(mid-cluster) = %d, want 0 (snap to leading edge)", got)
+	}
+}
+
 // TestInputLinePasteAllRejected verifies that a paste consisting
 // entirely of invalid characters leaves the field empty (rather
 // than crashing or partially committing).

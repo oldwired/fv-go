@@ -31,6 +31,8 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/utf8"
 	"github.com/oldwired/fv-go/pkg/fv/views"
+
+	"github.com/rivo/uniseg"
 )
 
 // LineColorer is the callback shape Editor uses for syntax coloring.
@@ -433,38 +435,53 @@ func (e *Editor) lineByIndex(idx int) (int, int) {
 }
 
 // columnAt returns the display column of pos (within its line).
+// Iterates grapheme clusters (so a wide ZWJ emoji advances col by 2,
+// a regional-indicator flag also by 2, etc.). Tab expansion is
+// preserved.
 func (e *Editor) columnAt(pos int) int {
 	ls := e.lineStart(pos)
 	col := 0
 	i := ls
+	state := -1
 	for i < pos {
-		r, sz := stdutf8.DecodeRune(e.Data[i:])
-		if r == '\t' {
+		cluster, _, width, newState := uniseg.FirstGraphemeCluster(e.Data[i:pos], state)
+		if len(cluster) == 0 {
+			break
+		}
+		if len(cluster) == 1 && cluster[0] == '\t' {
 			col += e.TabWidth - col%e.TabWidth
 		} else {
-			col += utf8.RuneCellWidth(r)
+			col += width
 		}
-		i += sz
+		i += len(cluster)
+		state = newState
 	}
 	return col
 }
 
 // posAtCol returns the byte index in [lineStart, lineEnd) closest to
-// the given display column.
+// the given display column. Iterates grapheme clusters; a cluster is
+// kept atomic — landing exactly at the end of a wide cluster returns
+// the byte index after it, not in the middle.
 func (e *Editor) posAtCol(lineStart, lineEnd, col int) int {
 	cur := 0
 	i := lineStart
+	state := -1
 	for i < lineEnd {
-		r, sz := stdutf8.DecodeRune(e.Data[i:])
-		w := utf8.RuneCellWidth(r)
-		if r == '\t' {
+		cluster, _, width, newState := uniseg.FirstGraphemeCluster(e.Data[i:lineEnd], state)
+		if len(cluster) == 0 {
+			break
+		}
+		w := width
+		if len(cluster) == 1 && cluster[0] == '\t' {
 			w = e.TabWidth - cur%e.TabWidth
 		}
 		if cur+w > col {
 			return i
 		}
 		cur += w
-		i += sz
+		i += len(cluster)
+		state = newState
 	}
 	return lineEnd
 }
@@ -578,16 +595,28 @@ func (e *Editor) Draw() {
 		}
 		col := 0
 		i := lstart
+		state := -1
 		for i < lend && col-e.LeftCol < e.Size.X {
-			r2, sz := stdutf8.DecodeRune(e.Data[i:])
-			w := utf8.RuneCellWidth(r2)
-			ch := string(r2)
-			if r2 == '\t' {
+			cluster, _, width, newState := uniseg.FirstGraphemeCluster(e.Data[i:lend], state)
+			if len(cluster) == 0 {
+				break
+			}
+			state = newState
+			isTab := len(cluster) == 1 && cluster[0] == '\t'
+			w := width
+			var ch string
+			if isTab {
 				w = e.TabWidth - col%e.TabWidth
 				ch = strings.Repeat(" ", w)
-			}
-			if w == 0 {
-				w = 1
+			} else {
+				ch = string(cluster)
+				if w == 0 {
+					// Defensive: shouldn't happen for well-formed
+					// strings (uniseg gives w=0 only for an empty
+					// cluster, which we already filtered). Keep one
+					// cell so we don't loop forever.
+					w = 1
+				}
 			}
 			x := col - e.LeftCol
 			if x >= 0 && x < e.Size.X {
@@ -602,28 +631,24 @@ func (e *Editor) Draw() {
 				if i >= selLo && i < selHi {
 					attr = selColor
 				}
-				if r2 == '\t' {
+				if isTab {
 					for j := 0; j < w && x+j < e.Size.X; j++ {
 						buf[x+j] = types.DrawCell{Ch: " ", Attr: attr}
 					}
 				} else {
 					buf[x] = types.DrawCell{Ch: ch, Attr: attr}
-					// For a wide (2-cell) rune, mark the next cell as
-					// a continuation (Ch="") with the same attr.
-					// Without this, the cellbuf records the wide
-					// glyph in one cell and leaves the next cell as
-					// a regular space — so when the row scrolls away
-					// the diff treats the trailing space as "no
-					// change" and the terminal's actual right half
-					// of the wide glyph lingers on screen as
-					// corruption.
+					// Wide cluster: emit a continuation cell so the
+					// cellbuf advances 2 cells in lockstep with the
+					// terminal. Without this the right half of a wide
+					// glyph would diff-equal the previous frame and
+					// stale content would linger after a scroll.
 					if w == 2 && x+1 < e.Size.X {
 						buf[x+1] = types.DrawCell{Ch: "", Attr: attr}
 					}
 				}
 			}
 			col += w
-			i += sz
+			i += len(cluster)
 		}
 		e.WriteLine(0, r, e.Size.X, 1, buf)
 	}

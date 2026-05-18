@@ -11,6 +11,8 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"github.com/oldwired/fv-go/pkg/fv/validators"
 	"github.com/oldwired/fv-go/pkg/fv/views"
+
+	"github.com/rivo/uniseg"
 )
 
 // InputLine is a single-line text editor with selection, an optional
@@ -168,6 +170,12 @@ func (il *InputLine) SetData(buf []byte) {
 }
 
 // Draw paints the field, highlighting any active selection range.
+//
+// CurPos / SelAnchor / FirstPos remain rune-indexed (matching how the
+// rest of InputLine reasons about the buffer). The Draw step walks the
+// buffer as grapheme clusters so wide / ZWJ emoji render in a single
+// cell pair, and translates the current rune-index cursor to its on-
+// screen cell column via cellColumnForRuneIndex.
 func (il *InputLine) Draw() {
 	pal := theme.Get()
 	bg := pal.InputUnfocused
@@ -183,23 +191,89 @@ func (il *InputLine) Draw() {
 		screen.DrawCell(buf, x, " ", color)
 	}
 
-	// Render runes from FirstPos through end-of-field, applying the
-	// selection color to indices inside [selLo, selHi).
 	selLo, selHi := -1, -1
 	if il.hasSelection() {
 		selLo, selHi = il.selectionRange()
 	}
+
+	// Walk clusters of il.Data, skipping the rune-prefix
+	// [0, FirstPos), then drawing clusters that fit within the
+	// field. A cluster's "rune position" is the index of its first
+	// rune in il.Data; SelAnchor / CurPos are rune indices, so we
+	// can intersect each cluster's rune span with [selLo, selHi).
+	s := string(il.Data)
+	g := uniseg.NewGraphemes(s)
+	runeIdx := 0
 	x := 1
-	for i := il.FirstPos; i < len(il.Data) && x < w; i++ {
+	for g.Next() {
+		cluster := g.Str()
+		cw := g.Width()
+		clusterRunes := runeCount(cluster)
+		if runeIdx+clusterRunes <= il.FirstPos {
+			runeIdx += clusterRunes
+			continue
+		}
+		if x >= w {
+			break
+		}
 		c := color
-		if i >= selLo && i < selHi {
+		// Cluster is "selected" iff any of its runes are inside
+		// [selLo, selHi).
+		if clusterRunes > 0 && runeIdx < selHi && runeIdx+clusterRunes > selLo {
 			c = selColor
 		}
-		buf[x] = types.DrawCell{Ch: string(il.Data[i]), Attr: c}
+		buf[x] = types.DrawCell{Ch: cluster, Attr: c}
 		x++
+		if cw == 2 && x < w {
+			buf[x] = types.DrawCell{Ch: "", Attr: c}
+			x++
+		}
+		runeIdx += clusterRunes
 	}
 	il.WriteLine(0, 0, w, 1, buf)
-	il.Cursor = geom.Point{X: 1 + il.CurPos - il.FirstPos, Y: 0}
+	il.Cursor = geom.Point{X: 1 + il.cellColumnForRuneIndex(il.CurPos) - il.cellColumnForRuneIndex(il.FirstPos), Y: 0}
+}
+
+// cellColumnForRuneIndex returns the display column (in cells) of the
+// caret position just before the rune at index `runeIdx`. Used to
+// translate the rune-indexed CurPos / FirstPos to on-screen cell
+// columns for cursor placement.
+//
+// Index past the end of il.Data clamps to the end (i.e., column = the
+// total cell width of the data). Index inside a multi-rune cluster
+// snaps to that cluster's leading edge — we don't half-paint a
+// cluster, and the caret never lands inside one.
+func (il *InputLine) cellColumnForRuneIndex(runeIdx int) int {
+	if runeIdx <= 0 {
+		return 0
+	}
+	col := 0
+	cur := 0
+	g := uniseg.NewGraphemes(string(il.Data))
+	for g.Next() {
+		clusterRunes := runeCount(g.Str())
+		if cur+clusterRunes > runeIdx {
+			// runeIdx falls inside this cluster — snap to its
+			// leading edge.
+			return col
+		}
+		cur += clusterRunes
+		col += g.Width()
+		if cur >= runeIdx {
+			return col
+		}
+	}
+	return col
+}
+
+// runeCount counts the runes in s. Inlined here to keep the
+// per-cluster translation small.
+func runeCount(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
 }
 
 // HandleEvent implements editing, navigation, selection, and clipboard.

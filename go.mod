@@ -8,3 +8,5 @@ require (
 	golang.org/x/sys v0.44.0
 	golang.org/x/term v0.43.0
 )
+
+require github.com/rivo/uniseg v0.4.7 // indirect

@@ -9,10 +9,9 @@
 package screen
 
 import (
-	stdutf8 "unicode/utf8"
-
 	"github.com/oldwired/fv-go/pkg/fv/types"
-	"github.com/oldwired/fv-go/pkg/fv/utf8"
+
+	"github.com/rivo/uniseg"
 )
 
 // MaxViewWidth caps the per-line draw buffer size, mirroring
@@ -67,79 +66,47 @@ func DrawChar(buf DrawBuffer, pos int, ch rune, attr uint16, count int) {
 
 // DrawStr writes s starting at pos. Stops at end-of-buffer.
 //
-// Cell-width handling:
+// Iterates s as Unicode grapheme clusters via uniseg, so multi-codepoint
+// glyphs (ZWJ sequences like family 👨‍👩‍👧‍👦 and rainbow flag 🏳️‍🌈,
+// regional-indicator country flags like 🇩🇪, skin-tone modifiers like
+// 👋🏼, and combining marks) are atomic: each cluster lands in one
+// cellbuf cell, plus a continuation cell (Ch="") when the cluster is
+// 2 cells wide. This keeps the cellbuf advance in lockstep with the
+// terminal's cursor advance per UAX #29 + UAX #11.
 //
-//   - Narrow rune (w=1): one cell.
-//   - Wide rune (w=2): one cell + a continuation cell (Ch="") so the
-//     cellbuf advances in lockstep with the terminal cursor.
-//   - Zero-width rune (combining mark, BOM, format char): appended to
-//     the previous cell.
-//   - VS16 (U+FE0F, emoji presentation): appended to the previous
-//     cell AND extends a narrow base to two cells, because terminals
-//     render VS16'd glyphs at emoji width.
-//   - ZWJ (U+200D, zero-width joiner): appended to the previous cell.
-//     The next base rune is also appended to the same cell rather
-//     than starting a new cell pair — terminals render the whole ZWJ
-//     cluster (family emoji 👨‍👩‍👧‍👦, rainbow flag 🏳️‍🌈) as one
-//     glyph. Without this, our cellbuf advances per component while
-//     the terminal advances one cluster, and the trailing cells of
-//     our cellbuf never get painted — stale content shows through.
-//
-// When pos < 0, runes whose cell position is still negative are
+// When pos < 0, clusters whose cell position is still negative are
 // skipped (width still accounted for), then drawing resumes once
 // the column reaches 0.
 func DrawStr(buf DrawBuffer, pos int, s string, attr uint16) {
 	x := pos
-	zwjPending := false
-	prevW := 0
-	for _, r := range s {
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		cluster := g.Str()
+		w := g.Width()
+
+		if w == 0 {
+			// Zero-width cluster (rare — typically only at the start
+			// of a string before any base char). Attach defensively
+			// to the previous cell so we never silently drop bytes.
+			if x > 0 && x-1 < len(buf) {
+				buf[x-1].Ch += cluster
+			}
+			continue
+		}
+
 		if x >= len(buf) {
 			break
 		}
-		w := utf8.RuneCellWidth(r)
-
-		// ZWJ: append to previous cell; the next base will merge in.
-		if r == 0x200D {
-			if x > 0 && x-1 < len(buf) {
-				buf[x-1].Ch += string(r)
-			}
-			zwjPending = true
-			continue
-		}
-
-		if w == 0 {
-			if x > 0 && x-1 < len(buf) {
-				buf[x-1].Ch += string(r)
-			}
-			// VS16: promote previous narrow base to emoji (2 cells).
-			if r == 0xFE0F && prevW == 1 && x < len(buf) {
-				buf[x] = types.DrawCell{Ch: "", Attr: attr}
-				x++
-				prevW = 2
-			}
-			continue
-		}
-
-		// Base rune after a ZWJ — append, don't start a new cell.
-		if zwjPending && x > 0 && x-1 < len(buf) {
-			buf[x-1].Ch += string(r)
-			zwjPending = false
-			prevW = w
-			continue
-		}
-
 		if x < 0 {
 			x += w
-			prevW = w
 			continue
 		}
-		buf[x] = types.DrawCell{Ch: string(r), Attr: attr}
+		buf[x] = types.DrawCell{Ch: cluster, Attr: attr}
 		x++
 		if w == 2 && x < len(buf) {
 			buf[x] = types.DrawCell{Ch: "", Attr: attr}
 			x++
 		}
-		prevW = w
 	}
 }
 
@@ -151,69 +118,57 @@ func DrawStr(buf DrawBuffer, pos int, s string, attr uint16) {
 // each; that constrains menus to 16 colors. We take two uint16s instead
 // — the menu code already has both attrs in hand, and this avoids a
 // silent attribute corruption that the old packed layout produced.
+//
+// Cluster handling is the same as DrawStr's. '~' is single-byte
+// ASCII and can never appear inside a multi-codepoint cluster, so
+// we run a pre-pass that splits s on '~' into alternating
+// normal/hot segments, then DrawStr-style emit each segment.
 func DrawCStr(buf DrawBuffer, pos int, s string, normal, hot uint16) {
 	cur := normal
 	x := pos
-	i := 0
-	zwjPending := false
-	prevW := 0
-	for i < len(s) {
-		if s[i] == '~' {
-			if cur == normal {
-				cur = hot
-			} else {
-				cur = normal
-			}
-			i++
-			continue
+	segStart := 0
+	emit := func(seg string) {
+		if seg == "" {
+			return
 		}
-		r, sz := stdutf8.DecodeRuneInString(s[i:])
-		i += sz
-		if x >= len(buf) {
-			break
-		}
-		w := utf8.RuneCellWidth(r)
-
-		if r == 0x200D {
-			if x > 0 && x-1 < len(buf) {
-				buf[x-1].Ch += string(r)
+		g := uniseg.NewGraphemes(seg)
+		for g.Next() {
+			cluster := g.Str()
+			w := g.Width()
+			if w == 0 {
+				if x > 0 && x-1 < len(buf) {
+					buf[x-1].Ch += cluster
+				}
+				continue
 			}
-			zwjPending = true
-			continue
-		}
-
-		if w == 0 {
-			if x > 0 && x-1 < len(buf) {
-				buf[x-1].Ch += string(r)
+			if x >= len(buf) {
+				return
 			}
-			if r == 0xFE0F && prevW == 1 && x < len(buf) {
+			if x < 0 {
+				x += w
+				continue
+			}
+			buf[x] = types.DrawCell{Ch: cluster, Attr: cur}
+			x++
+			if w == 2 && x < len(buf) {
 				buf[x] = types.DrawCell{Ch: "", Attr: cur}
 				x++
-				prevW = 2
 			}
-			continue
 		}
-
-		if zwjPending && x > 0 && x-1 < len(buf) {
-			buf[x-1].Ch += string(r)
-			zwjPending = false
-			prevW = w
-			continue
-		}
-
-		if x < 0 {
-			x += w
-			prevW = w
-			continue
-		}
-		buf[x] = types.DrawCell{Ch: string(r), Attr: cur}
-		x++
-		if w == 2 && x < len(buf) {
-			buf[x] = types.DrawCell{Ch: "", Attr: cur}
-			x++
-		}
-		prevW = w
 	}
+	for i := 0; i < len(s); i++ {
+		if s[i] != '~' {
+			continue
+		}
+		emit(s[segStart:i])
+		if cur == normal {
+			cur = hot
+		} else {
+			cur = normal
+		}
+		segStart = i + 1
+	}
+	emit(s[segStart:])
 }
 
 // DrawBuf copies count cells from src[srcPos:] into dest[destPos:].

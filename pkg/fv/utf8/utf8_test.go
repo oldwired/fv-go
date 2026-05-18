@@ -35,7 +35,10 @@ func TestStringDisplayWidth(t *testing.T) {
 		{"日本語", 6},                   // CJK
 		{"\U0001F600", 2},            // emoji 😀
 		{"\U0001F468‍\U0001F469", 2}, // ZWJ family fragment - one wide cluster
-		{"x️", 2},                    // VS16 promotes width 1 -> 2
+		// VS16 (U+FE0F) only promotes characters with Emoji_Presentation.
+		// ❤ (U+2764) qualifies — narrow as text, wide as emoji.
+		{"❤️", 2}, // ❤️ — heart + VS16 = 2 cells
+		{"❤", 1},  // ❤ alone (text presentation) = 1 cell
 	}
 	for _, c := range cases {
 		if got := StringDisplayWidth(c.s); got != c.want {

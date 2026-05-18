@@ -3,16 +3,19 @@
 //
 // The Pascal version juggles UTF-16 surrogates because Delphi's string
 // type is UTF-16; Go strings are already UTF-8, so the codec layer is
-// thin (mostly the standard `unicode/utf8` package). What's worth porting
-// is the grapheme-aware behavior: ZWJ (U+200D) merges adjacent clusters,
-// VS16 (U+FE0F) promotes a width-1 base to width 2 (emoji presentation),
-// other zero-width code points attach to the previous cluster.
+// thin (mostly the standard `unicode/utf8` package). Cluster-aware
+// width and slicing delegate to github.com/rivo/uniseg, which
+// implements UAX #29 (text segmentation) and the wcwidth-style
+// monospace cell-width tables — handling ZWJ clusters (family
+// 👨‍👩‍👧‍👦, rainbow flag 🏳️‍🌈), VS16 emoji-presentation promotion,
+// regional indicators (🇩🇪), skin-tone modifiers (👋🏼), and combining
+// marks without per-codepoint special cases.
 package utf8
 
 import (
 	stdutf8 "unicode/utf8"
 
-	"github.com/oldwired/fv-go/pkg/fv/unicode"
+	"github.com/rivo/uniseg"
 )
 
 // FileEncoding identifies the encoding DetectEncoding inferred for a
@@ -104,81 +107,32 @@ func DecodeRune(buf []byte) (r rune, n int) {
 	return
 }
 
-// IsWideRune reports whether r occupies 2 cells.
-func IsWideRune(r rune) bool { return unicode.IsWide(uint32(r)) }
-
-// RuneCellWidth returns 0/1/2 cells for r.
-func RuneCellWidth(r rune) int { return unicode.CellWidth(uint32(r)) }
-
-// StringDisplayWidth returns the number of terminal cells s occupies,
-// honoring ZWJ joining and VS16 width promotion the same way FV's
-// drawing code lays the string out.
+// StringDisplayWidth returns the number of terminal cells s occupies.
+// Grapheme clusters (ZWJ sequences, regional indicators, skin-tone
+// modifiers, combining marks) count by the cluster's monospace
+// width via UAX #11 / wcwidth.
 func StringDisplayWidth(s string) int {
-	return measure(s, false)
+	return uniseg.StringWidth(s)
 }
 
 // CStrDisplayWidth is like StringDisplayWidth but skips '~' hotkey
-// markers that don't render as glyphs.
+// markers that don't render as glyphs. '~' is single-byte ASCII and
+// never appears inside an emoji cluster, so a simple byte strip is
+// safe.
 func CStrDisplayWidth(s string) int {
-	return measure(s, true)
-}
-
-func measure(s string, skipTilde bool) int {
-	total := 0
-	clusterWidth := 0
-	haveCluster := false
-	joinNext := false
-
-	flush := func() {
-		if haveCluster {
-			total += clusterWidth
-			haveCluster = false
-			clusterWidth = 0
-		}
+	if !containsByte(s, '~') {
+		return uniseg.StringWidth(s)
 	}
-
-	i := 0
-	for i < len(s) {
-		if skipTilde && s[i] == '~' {
-			i++
-			continue
-		}
-		r, sz := stdutf8.DecodeRuneInString(s[i:])
-		i += sz
-		w := unicode.CellWidth(uint32(r))
-		if w == 0 {
-			if haveCluster {
-				switch r {
-				case 0xFE0F: // VS16
-					if clusterWidth == 1 {
-						clusterWidth = 2
-					}
-				case 0x200D: // ZWJ
-					joinNext = true
-				}
-			}
-			continue
-		}
-		if haveCluster && joinNext {
-			if w > clusterWidth {
-				clusterWidth = w
-			}
-			joinNext = false
-			continue
-		}
-		flush()
-		haveCluster = true
-		clusterWidth = w
-		joinNext = false
-	}
-	flush()
-	return total
+	// Strip '~' markers, then measure. Faster than per-cluster
+	// post-filtering for the common menu-label case where '~' marks
+	// just one hotkey letter.
+	return uniseg.StringWidth(stripTildes(s))
 }
 
 // CopyDisplayCells returns the substring of s that occupies cells
-// [startCol, startCol+maxWidth) in the rendered terminal. Whole grapheme
-// clusters are kept together; if a wide cluster would straddle the end
-// it is omitted entirely.
+// [startCol, startCol+maxWidth) in the rendered terminal. Whole
+// grapheme clusters are kept together; if a wide cluster would
+// straddle the end it is omitted entirely.
 func CopyDisplayCells(s string, startCol, maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
@@ -190,60 +144,37 @@ func CopyDisplayCells(s string, startCol, maxWidth int) string {
 
 	var out []byte
 	col := 0
-	clusterWidth := 0
-	var clusterText []byte
-	haveCluster := false
-	joinNext := false
-
-	flush := func() bool {
-		if !haveCluster {
-			return true
-		}
-		if col >= startCol && col+clusterWidth <= endCol {
-			out = append(out, clusterText...)
-		}
-		col += clusterWidth
-		haveCluster = false
-		clusterText = clusterText[:0]
-		clusterWidth = 0
-		return col < endCol
-	}
-
-	i := 0
-	for i < len(s) {
-		r, sz := stdutf8.DecodeRuneInString(s[i:])
-		piece := s[i : i+sz]
-		i += sz
-
-		w := unicode.CellWidth(uint32(r))
-		if w == 0 {
-			if haveCluster {
-				clusterText = append(clusterText, piece...)
-				if r == 0xFE0F && clusterWidth == 1 {
-					clusterWidth = 2
-				}
-				if r == 0x200D {
-					joinNext = true
-				}
-			}
-			continue
-		}
-		if haveCluster && joinNext {
-			clusterText = append(clusterText, piece...)
-			if w > clusterWidth {
-				clusterWidth = w
-			}
-			joinNext = false
-			continue
-		}
-		if !flush() {
+	g := uniseg.NewGraphemes(s)
+	for g.Next() {
+		w := g.Width()
+		if col >= endCol {
 			break
 		}
-		haveCluster = true
-		clusterText = append(clusterText[:0], piece...)
-		clusterWidth = w
-		joinNext = false
+		if col >= startCol && col+w <= endCol {
+			out = append(out, []byte(g.Str())...)
+		}
+		col += w
 	}
-	flush()
+	return string(out)
+}
+
+// containsByte reports whether s contains byte b.
+func containsByte(s string, b byte) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return true
+		}
+	}
+	return false
+}
+
+// stripTildes returns s with every '~' removed.
+func stripTildes(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '~' {
+			out = append(out, s[i])
+		}
+	}
 	return string(out)
 }

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	stdutf8 "unicode/utf8"
+	"github.com/rivo/uniseg"
 )
 
 // Word-wrap + reformat support. The editor stores raw `[]byte` and
@@ -13,10 +13,10 @@ import (
 // is the wrap point; the wrap logic respects existing line breaks
 // (so an unwrapped buffer renders identically to the no-wrap path).
 //
-// Tab width still expands visually but for wrap-column calculation we
-// treat each rune as one display cell (close enough for the typical
-// terminal; CJK columns are handled by utf8.RuneCellWidth in the
-// renderer itself, not the wrap math).
+// Tabs expand to TabWidth in the editor render but for wrap-column
+// calculation we use grapheme-cluster widths via uniseg (so CJK
+// "你好" advances col by 4, not 2; emoji clusters advance by 2 not by
+// the rune count).
 
 // effectiveMargin returns the column at which to wrap, given the
 // view's current size and an optional explicit RightMargin. 0 means
@@ -49,17 +49,27 @@ func wrapPoints(line []byte, margin int) []int {
 	segStart := 0
 	col := 0
 	lastSpace := -1 // byte offset of the last space in the current segment
+	state := -1
 	for i := 0; i < len(line); {
-		r, sz := stdutf8.DecodeRune(line[i:])
-		if r == ' ' || r == '\t' {
+		cluster, _, width, newState := uniseg.FirstGraphemeCluster(line[i:], state)
+		if len(cluster) == 0 {
+			break
+		}
+		state = newState
+		w := width
+		if w <= 0 {
+			w = 1
+		}
+		isSpace := len(cluster) == 1 && (cluster[0] == ' ' || cluster[0] == '\t')
+		if isSpace {
 			lastSpace = i
 		}
-		col++
-		next := i + sz
+		col += w
+		next := i + len(cluster)
 		if col > margin {
 			breakAt := lastSpace
 			if breakAt < 0 || breakAt <= segStart {
-				breakAt = i // hard-wrap; current rune begins new segment
+				breakAt = i // hard-wrap; current cluster begins new segment
 			} else {
 				breakAt++ // skip the space itself
 			}
@@ -67,11 +77,12 @@ func wrapPoints(line []byte, margin int) []int {
 			segStart = breakAt
 			col = 0
 			lastSpace = -1
-			// Re-walk: the next char starts at breakAt; if that
+			state = -1 // reset cluster state after a wrap break
+			// Re-walk: the next cluster starts at breakAt; if that
 			// equals i, we're hard-wrapping and need to count
-			// the current rune in the new segment.
+			// the current cluster's width in the new segment.
 			if breakAt == i {
-				col = 1
+				col = w
 				i = next
 				continue
 			}
@@ -126,7 +137,7 @@ func (e *Editor) Reformat() {
 	var out bytes.Buffer
 	col := 0
 	for i, w := range words {
-		wlen := stdutf8.RuneCountInString(w)
+		wlen := uniseg.StringWidth(w)
 		if i == 0 {
 			out.WriteString(w)
 			col = wlen
