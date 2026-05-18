@@ -3,6 +3,8 @@ package editor
 import (
 	"strings"
 	"testing"
+
+	utf8Pkg "github.com/oldwired/fv-go/pkg/fv/utf8"
 )
 
 // TestScrollDoesNotMoveCursor verifies Editor.Scroll shifts the
@@ -143,6 +145,22 @@ func TestAppendRoutesUndo(t *testing.T) {
 	e.Undo()
 	if string(e.Data) != "base" {
 		t.Errorf("Undo after Append: %q, want %q", string(e.Data), "base")
+	}
+}
+
+// TestEncodingGetterSetter: the encoding field used to be unexported
+// with a docstring telling callers to "set e.encoding before
+// calling SaveFile" — impossible from outside the package. Now
+// exposed via Encoding() / SetEncoding so the BOM-preservation
+// path is actually reachable.
+func TestEncodingGetterSetter(t *testing.T) {
+	e := newTestEditor()
+	if e.Encoding() != utf8Pkg.EncUTF8 {
+		t.Errorf("default Encoding() = %v, want EncUTF8", e.Encoding())
+	}
+	e.SetEncoding(utf8Pkg.EncUTF8BOM)
+	if e.Encoding() != utf8Pkg.EncUTF8BOM {
+		t.Errorf("after SetEncoding(BOM): got %v, want EncUTF8BOM", e.Encoding())
 	}
 }
 

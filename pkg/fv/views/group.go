@@ -156,6 +156,14 @@ func (g *Group) InsertBefore(v, target View) {
 	copy(g.Children[idx+1:], g.Children[idx:])
 	g.Children[idx] = v
 
+	// Inserting at or before the current index shifts the focused
+	// child right by one. Without this, current would dangle on the
+	// new arrival or on whichever sibling happened to slide into the
+	// old slot. Mirrors the symmetric shift in Delete.
+	if g.current >= idx {
+		g.current++
+	}
+
 	if v.BaseView().Options&consts.OfSelectable != 0 && g.current < 0 {
 		g.current = idx
 		v.BaseView().State |= consts.SfSelected | consts.SfFocused
@@ -226,7 +234,12 @@ func (g *Group) Delete(v View) {
 				}
 				if next >= 0 {
 					g.current = next
-					g.Children[next].BaseView().State |= consts.SfSelected
+					// Set BOTH SfSelected and SfFocused. The
+					// modal-close path before this fix only set
+					// SfSelected, so the restored view drew as
+					// unfocused (no caret, dim chrome) until the
+					// user clicked or tabbed away and back.
+					g.Children[next].BaseView().State |= consts.SfSelected | consts.SfFocused
 				}
 			} else if g.current > i {
 				// The deleted child sat before current; shift index left

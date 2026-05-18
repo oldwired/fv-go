@@ -299,7 +299,9 @@ func (e *Editor) Append(s string) {
 
 // LoadFile reads path, detects its encoding (UTF-8 / UTF-16 / BOM /
 // ANSI), and converts to UTF-8 in memory. Filename and encoding are
-// recorded so SaveFile can round-trip.
+// recorded; the encoding is reported by Encoding() and used by
+// SaveFile to preserve the UTF-8 BOM only — UTF-16 and ANSI files
+// are saved as plain UTF-8 (see SaveFile's docstring).
 func (e *Editor) LoadFile(path string) error {
 	data, err := readFile(path)
 	if err != nil {
@@ -313,9 +315,25 @@ func (e *Editor) LoadFile(path string) error {
 	return nil
 }
 
-// SaveFile writes the buffer to path. UTF-8-with-BOM round-trips its
-// BOM; UTF-16 is downgraded to UTF-8 (no re-encoding). To save a
-// different encoding, set e.encoding before calling.
+// Encoding returns the encoding LoadFile detected (or
+// utf8.EncUTF8 for buffers populated via SetText / Append). Hosts
+// that want to round-trip the original encoding on save must do the
+// re-encoding themselves and then write the bytes directly; the
+// editor's SaveFile only preserves the UTF-8 BOM.
+func (e *Editor) Encoding() utf8.FileEncoding { return e.encoding }
+
+// SetEncoding overrides the encoding hint. Currently only affects
+// whether SaveFile prepends a UTF-8 BOM (when set to EncUTF8BOM).
+// Other values are stored but SaveFile does not re-encode the
+// buffer — see SaveFile.
+func (e *Editor) SetEncoding(enc utf8.FileEncoding) { e.encoding = enc }
+
+// SaveFile writes the buffer to path as UTF-8 bytes. If the recorded
+// encoding is EncUTF8BOM the file is prefixed with the UTF-8 BOM;
+// otherwise no transformation is applied — UTF-16 LE/BE and ANSI
+// (CP1252) files loaded via LoadFile are silently downgraded to
+// UTF-8 on save. Hosts that need byte-for-byte round-trip of those
+// encodings must re-encode before writing.
 func (e *Editor) SaveFile(path string) error {
 	out := append([]byte(nil), e.Data...)
 	if e.encoding == utf8.EncUTF8BOM {
@@ -590,6 +608,18 @@ func (e *Editor) Draw() {
 					}
 				} else {
 					buf[x] = types.DrawCell{Ch: ch, Attr: attr}
+					// For a wide (2-cell) rune, mark the next cell as
+					// a continuation (Ch="") with the same attr.
+					// Without this, the cellbuf records the wide
+					// glyph in one cell and leaves the next cell as
+					// a regular space — so when the row scrolls away
+					// the diff treats the trailing space as "no
+					// change" and the terminal's actual right half
+					// of the wide glyph lingers on screen as
+					// corruption.
+					if w == 2 && x+1 < e.Size.X {
+						buf[x+1] = types.DrawCell{Ch: "", Attr: attr}
+					}
 				}
 			}
 			col += w

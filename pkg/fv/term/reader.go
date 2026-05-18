@@ -35,6 +35,14 @@ type reader struct {
 	scan     []byte // unconsumed bytes from previous Read
 	paste    bool
 	pasteBuf []byte
+	// pasteCapped marks the state after a bracketed-paste payload hit
+	// the 4 MiB cap. The parser continues to consume bytes but
+	// discards them until it sees the closing ESC[201~, at which
+	// point it re-arms for normal parsing. Without this, the residual
+	// bytes of an oversized paste would get re-parsed as keystrokes
+	// and (worst case) inject command sequences after the truncation
+	// boundary.
+	pasteCapped bool
 
 	// Double-click tracking. A press is "double" if the same button
 	// is pressed within doubleClickWindow at the same cell as the
@@ -104,29 +112,47 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 	if r.paste {
 		end := []byte("\x1b[201~")
 		if i := indexBytes(r.scan, end); i >= 0 {
+			if r.pasteCapped {
+				// We already emitted the truncated payload; consume
+				// everything up to and including the close sequence
+				// without emitting another event and return to
+				// normal parsing.
+				r.paste = false
+				r.pasteCapped = false
+				return Event{}, i + len(end), true
+			}
 			r.pasteBuf = append(r.pasteBuf, r.scan[:i]...)
 			r.paste = false
 			payload := string(r.pasteBuf)
 			r.pasteBuf = r.pasteBuf[:0]
 			return Event{Kind: EventPaste, Paste: payload}, i + len(end), true
 		}
+		if r.pasteCapped {
+			// Close sequence not visible yet; keep discarding. Keep
+			// some lookback bytes in case ESC[201~ straddles two
+			// reads — using len(end)-1 ensures we don't drop the
+			// prefix of a split close sequence.
+			keep := len(end) - 1
+			if len(r.scan) <= keep {
+				return Event{}, 0, false
+			}
+			return Event{}, len(r.scan) - keep, true
+		}
 		// Cap accumulation so a runaway or malicious sender can't
 		// allocate unbounded memory between ESC[200~ and ESC[201~.
 		// On overflow we synthesize an end-of-paste event with the
 		// Truncated flag set so the host can decide what to do
-		// (typically: warn, discard the rest until ESC[201~).
+		// (typically: warn, discard the rest until ESC[201~), then
+		// stay in paste-mode with pasteCapped=true so further bytes
+		// keep getting discarded until the actual close arrives.
 		if len(r.pasteBuf)+len(r.scan) > maxPasteBytes {
 			take := maxPasteBytes - len(r.pasteBuf)
 			if take > 0 {
 				r.pasteBuf = append(r.pasteBuf, r.scan[:take]...)
 			}
-			r.paste = false
 			payload := string(r.pasteBuf)
 			r.pasteBuf = r.pasteBuf[:0]
-			// Consume what we took; the rest of r.scan stays in the
-			// buffer. The next parseOne pass will look for ESC[201~
-			// in the residual bytes (or treat them as regular input
-			// if no opening sequence followed).
+			r.pasteCapped = true
 			consumed := take
 			if consumed < 0 {
 				consumed = 0

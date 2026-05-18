@@ -359,6 +359,13 @@ func (il *InputLine) copySelection() {
 
 // insertText replaces the selection (or inserts at the caret) with s.
 // Newlines and tabs are dropped — InputLine is single-line.
+//
+// Each candidate rune is screened by passesInputValidator before it's
+// committed, mirroring the keystroke path. Without this, a paste or
+// other programmatic insert could place characters into the field
+// that the validator would reject from typing — surprising for the
+// user and a real bug for fields like numeric or restricted-charset
+// inputs.
 func (il *InputLine) insertText(s string) {
 	il.deleteSelection()
 	for _, r := range s {
@@ -368,7 +375,16 @@ func (il *InputLine) insertText(s string) {
 		if il.MaxLen != 0 && len(il.Data) >= il.MaxLen {
 			break
 		}
-		il.Data = append(il.Data[:il.CurPos], append([]rune{r}, il.Data[il.CurPos:]...)...)
+		candidate := make([]rune, 0, len(il.Data)+1)
+		candidate = append(candidate, il.Data[:il.CurPos]...)
+		candidate = append(candidate, r)
+		candidate = append(candidate, il.Data[il.CurPos:]...)
+		if !il.passesInputValidator(string(candidate)) {
+			// Skip this rune; keep going so a paste with one bad
+			// character still lands the good ones.
+			continue
+		}
+		il.Data = candidate
 		il.CurPos++
 	}
 	il.adjustScroll()

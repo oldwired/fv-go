@@ -1,13 +1,24 @@
 package term
 
 import (
+	"sync"
+
 	"github.com/oldwired/fv-go/pkg/fv/types"
 )
 
 // cellBuf is a 2D grid of DrawCell ringed by a previous-frame buffer
 // for diffed flushes. Its sole responsibility is "what changed since
 // last frame, in row-major order, with run-length grouping by attribute".
+//
+// Synchronization: mu protects every field. The POSIX backend's
+// signalLoop calls Resize from a separate goroutine when SIGWINCH
+// fires; the Windows backend's reader goroutine does the same when
+// it polls the viewport. Without the mutex those resizes raced with
+// the UI goroutine's SetCell / Clear / dirty / commit / Get and
+// could produce torn reads, out-of-range index panics during slice
+// reallocation, or stale cell counts visible to the diff pass.
 type cellBuf struct {
+	mu         sync.Mutex
 	cols, rows int
 	cur        []types.DrawCell // back buffer (writes go here)
 	prev       []types.DrawCell // last flushed frame
@@ -22,6 +33,8 @@ func newCellBuf(cols, rows int) *cellBuf {
 // Resize discards the current contents and reallocates. Call when the
 // terminal viewport changes.
 func (b *cellBuf) Resize(cols, rows int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.cols = cols
 	b.rows = rows
 	n := cols * rows
@@ -36,18 +49,28 @@ func (b *cellBuf) Resize(cols, rows int) {
 }
 
 // Set writes one cell. Out-of-range coords are dropped.
+//
+// An empty Ch is preserved verbatim — it marks the continuation cell
+// of a wide (2-column) glyph whose leading half lives at column x-1.
+// The previous behavior rewrote it to a literal space, which broke
+// the diff: when a row containing wide chars scrolled away, the
+// "space" in prev matched the "space" in cur for every continuation
+// column, so the diff skipped them and the terminal's actual wide
+// glyph stayed on screen. Snapshot still renders "" as " " for
+// human-readable golden output (see Headless.Snapshot).
 func (b *cellBuf) Set(x, y int, c types.DrawCell) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
 		return
-	}
-	if c.Ch == "" {
-		c.Ch = " "
 	}
 	b.cur[y*b.cols+x] = c
 }
 
 // Get reads one cell. Returns zero cell if OOB.
 func (b *cellBuf) Get(x, y int) types.DrawCell {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
 		return types.DrawCell{}
 	}
@@ -56,10 +79,22 @@ func (b *cellBuf) Get(x, y int) types.DrawCell {
 
 // Clear fills with empty cells using attr.
 func (b *cellBuf) Clear(attr uint16) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	cell := types.DrawCell{Ch: " ", Attr: attr}
 	for i := range b.cur {
 		b.cur[i] = cell
 	}
+}
+
+// Size returns the current cols/rows under the mutex. External
+// callers should use this instead of reading b.cols / b.rows
+// directly — those fields may be re-assigned by a concurrent
+// Resize from a signal goroutine.
+func (b *cellBuf) Size() (cols, rows int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.cols, b.rows
 }
 
 // span describes a contiguous run of cells with identical attributes,
@@ -81,6 +116,8 @@ type span struct {
 // of changed cells with matching attributes. After diff, the caller is
 // responsible for copying cur->prev (DiffSwap).
 func (b *cellBuf) dirty() []span {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	var spans []span
 	for y := 0; y < b.rows; y++ {
 		x := 0
@@ -125,6 +162,8 @@ func (b *cellBuf) dirty() []span {
 
 // commit copies the back buffer over the front buffer.
 func (b *cellBuf) commit() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	copy(b.prev, b.cur)
 }
 
@@ -133,6 +172,8 @@ func (b *cellBuf) commit() {
 // their sentinel cells (which would otherwise overwrite the graphics
 // pixels with spaces).
 func (b *cellBuf) markClean(x, y int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
 		return
 	}
@@ -144,6 +185,8 @@ func (b *cellBuf) markClean(x, y int) {
 // SIXEL views to ensure cells covering their region get re-drawn each
 // frame on top of the freshly-emitted SIXEL pixels.
 func (b *cellBuf) invalidate(x, y int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
 		return
 	}

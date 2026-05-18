@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -94,6 +95,12 @@ type Terminal struct {
 	pty    *ptyHandle
 	mu     sync.Mutex
 	closed bool
+	// started is set on the first successful Start. A second Start
+	// returns an error rather than silently overwriting t.pty while
+	// the previous readLoop / waitLoop are still alive on the old
+	// handle. Terminal is one-shot per the codebase's PTY lifecycle —
+	// hosts that want a fresh shell construct a fresh Terminal.
+	started bool
 
 	// lastActivity is the wall-clock time of the most recent
 	// OnActivity fire. Read/written only by the reader goroutine
@@ -212,12 +219,23 @@ func (t *Terminal) GetTypeID() string { return "terminal" }
 // negotiate reasonable capabilities). t.WorkingDir, if non-empty, is
 // the child's initial cwd; empty means inherit. t.ScrollbackLines, if
 // non-zero, replaces the default 2000-line cap.
+// ErrTerminalAlreadyStarted is returned by Start when called on an
+// instance that already has a running (or previously-running) PTY.
+// Terminals are one-shot: after Stop, the host must create a fresh
+// Terminal rather than restarting this one.
+var ErrTerminalAlreadyStarted = errors.New("terminal: already started")
+
 func (t *Terminal) Start(name string, args []string, env []string) error {
-	if t.ScrollbackLines > 0 {
-		t.mu.Lock()
-		t.buf.scrollbackCap = t.ScrollbackLines
+	t.mu.Lock()
+	if t.started {
 		t.mu.Unlock()
+		return ErrTerminalAlreadyStarted
 	}
+	if t.ScrollbackLines > 0 {
+		t.buf.scrollbackCap = t.ScrollbackLines
+	}
+	t.mu.Unlock()
+
 	if t.Env != nil {
 		env = t.Env
 	}
@@ -229,7 +247,10 @@ func (t *Terminal) Start(name string, args []string, env []string) error {
 	if err != nil {
 		return err
 	}
+	t.mu.Lock()
 	t.pty = p
+	t.started = true
+	t.mu.Unlock()
 	go t.readLoop()
 	go t.waitLoop()
 	return nil
@@ -527,12 +548,16 @@ func (t *Terminal) readLoop() {
 		n, err := t.pty.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
-			// OnFeed runs synchronously between the PTY read and the
-			// parser. Hosts can use it for asciicast recording or
-			// byte-level effects (e.g., :rot13). The hook is on the
-			// hot path — keep the callback cheap. nil-safe.
-			if t.OnFeed != nil {
-				chunk = t.OnFeed(chunk)
+			// Snapshot OnFeed under the lock so a concurrent assignment
+			// from host code can't race with our read. Other terminal
+			// callbacks (OnActivity, OnExit, OnTitle, OnCWDChange,
+			// OnBell) already use this pattern; OnFeed missed it before
+			// the fix.
+			t.mu.Lock()
+			onFeed := t.OnFeed
+			t.mu.Unlock()
+			if onFeed != nil {
+				chunk = onFeed(chunk)
 			}
 			t.mu.Lock()
 			t.par.Feed(chunk)
@@ -597,6 +622,11 @@ func (t *Terminal) waitLoop() {
 func (t *Terminal) HandleEvent(ev *drivers.Event) {
 	if ev.What == consts.EvCommand && ev.Command == consts.CmClose {
 		t.Stop()
+		// Consume the event. Without this the same CmClose keeps
+		// propagating to the window/owner, triggering a parallel
+		// close path while the PTY has already been torn down —
+		// the user sees two close-related actions for one click.
+		t.ClearEvent(ev)
 		return
 	}
 	if t.pty == nil {

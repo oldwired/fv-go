@@ -275,6 +275,14 @@ func (w *Window) GetTypeID() string { return "window" }
 // every child (the Frame is first, so the border overlays the fill;
 // content widgets follow), then the shadow if SfShadow is set.
 func (w *Window) Draw() {
+	// When ForceFullRedraw is on, invalidate every cell within the
+	// window's rect first so the diff fires for every cell on every
+	// Draw. See ForceFullRedraw's docs for when this is useful.
+	if ForceFullRedraw {
+		sx, sy := w.ScreenOrigin()
+		InvalidateRect(sx, sy, w.Size.X, w.Size.Y)
+	}
+
 	// Interior fill: light-gray-on-cyan, the classic TV dialog body.
 	bg := theme.Get().WindowBackground
 	for y := 0; y < w.Size.Y; y++ {

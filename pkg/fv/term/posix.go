@@ -28,24 +28,40 @@ type terminalWriter interface {
 func newPlatformBackend() Backend { return &posixBackend{} }
 
 type posixBackend struct {
-	in        *os.File
-	out       *os.File
-	writer    terminalWriter // Flush write target; defaults to b.out
-	prevTerm  *xterm.State
-	buf       *cellBuf
-	enc       *sgrEncoder
-	cursorX   int
-	cursorY   int
-	cursorOn  bool
-	events    chan Event
-	stop      chan struct{}
-	done      chan struct{} // closed by readLoop when it exits
-	winch     chan os.Signal
-	reader    *reader
-	closeOnce sync.Once
+	in       *os.File
+	out      *os.File
+	writer   terminalWriter // Flush write target; defaults to b.out
+	prevTerm *xterm.State
+	buf      *cellBuf
+	enc      *sgrEncoder
+	cursorX  int
+	cursorY  int
+	cursorOn bool
+	events   chan Event
+	stop     chan struct{}
+	done     chan struct{} // closed by readLoop when it exits
+	winch    chan os.Signal
+	reader   *reader
+
+	// closeMu guards the closed flag. Close uses it for idempotency
+	// (multiple Close calls only run teardown once); Init resets the
+	// flag so Suspend → Resume → … → Close still tears down properly.
+	// Replaces an earlier sync.Once-based design that left
+	// post-Suspend Close calls as no-ops, leaving raw mode / alt
+	// screen / mouse modes potentially active on shutdown.
+	closeMu sync.Mutex
+	closed  bool
 }
 
 func (b *posixBackend) Init() error {
+	// Re-arm the closed flag so a Suspend → Resume cycle leaves a
+	// future Close able to actually run its teardown. Without this,
+	// the post-Suspend session would leak raw mode + alt screen on
+	// process exit.
+	b.closeMu.Lock()
+	b.closed = false
+	b.closeMu.Unlock()
+
 	b.in = os.Stdin
 	b.out = os.Stdout
 	b.writer = b.out
@@ -133,46 +149,52 @@ func (b *posixBackend) Init() error {
 // byte arrives — by which point the terminal is back to a sane state
 // and the leftover goroutine is harmless.
 func (b *posixBackend) Close() error {
-	b.closeOnce.Do(func() {
-		if b.stop != nil {
-			close(b.stop)
-			// Leave b.stop non-nil. Reading from a closed channel returns
-			// immediately, which is exactly what consumers want.
+	b.closeMu.Lock()
+	if b.closed {
+		b.closeMu.Unlock()
+		return nil
+	}
+	b.closed = true
+	b.closeMu.Unlock()
+
+	if b.stop != nil {
+		close(b.stop)
+		// Leave b.stop non-nil. Reading from a closed channel returns
+		// immediately, which is exactly what consumers want.
+	}
+	if b.winch != nil {
+		signal.Stop(b.winch)
+		b.winch = nil
+	}
+	// restore terminal state (best effort, in order)
+	_, _ = b.out.WriteString(strings.Join([]string{
+		"\x1b]22;\x07", // mouse cursor: clear override (restores terminal default)
+		"\x1b[?1004l",  // focus events off
+		"\x1b[?2004l",  // bracketed paste off
+		"\x1b[?1006l",
+		"\x1b[?1002l", // cell-motion off
+		"\x1b[?1000l",
+		"\x1b[?25h",   // show cursor
+		"\x1b[0m",     // SGR reset
+		"\x1b[?1049l", // exit alt screen
+	}, ""))
+	if b.prevTerm != nil && b.in != nil {
+		_ = xterm.Restore(int(b.in.Fd()), b.prevTerm)
+		b.prevTerm = nil
+	}
+	// Best-effort wait for the read loop to finish. Restoring cooked
+	// mode usually unblocks the pending Read promptly.
+	if b.done != nil {
+		select {
+		case <-b.done:
+		case <-time.After(100 * time.Millisecond):
 		}
-		if b.winch != nil {
-			signal.Stop(b.winch)
-			b.winch = nil
-		}
-		// restore terminal state (best effort, in order)
-		_, _ = b.out.WriteString(strings.Join([]string{
-			"\x1b]22;\x07", // mouse cursor: clear override (restores terminal default)
-			"\x1b[?1004l",  // focus events off
-			"\x1b[?2004l",  // bracketed paste off
-			"\x1b[?1006l",
-			"\x1b[?1002l", // cell-motion off
-			"\x1b[?1000l",
-			"\x1b[?25h",   // show cursor
-			"\x1b[0m",     // SGR reset
-			"\x1b[?1049l", // exit alt screen
-		}, ""))
-		if b.prevTerm != nil && b.in != nil {
-			_ = xterm.Restore(int(b.in.Fd()), b.prevTerm)
-			b.prevTerm = nil
-		}
-		// Best-effort wait for the read loop to finish. Restoring cooked
-		// mode usually unblocks the pending Read promptly.
-		if b.done != nil {
-			select {
-			case <-b.done:
-			case <-time.After(100 * time.Millisecond):
-			}
-		}
-	})
+	}
 	return nil
 }
 
 func (b *posixBackend) Size() (cols, rows int) {
-	return b.buf.cols, b.buf.rows
+	return b.buf.Size()
 }
 
 func (b *posixBackend) SetCell(x, y int, c types.DrawCell) { b.buf.Set(x, y, c) }

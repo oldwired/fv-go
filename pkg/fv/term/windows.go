@@ -154,7 +154,7 @@ func (b *winBackend) Close() error {
 	return nil
 }
 
-func (b *winBackend) Size() (int, int) { return b.buf.cols, b.buf.rows }
+func (b *winBackend) Size() (int, int) { return b.buf.Size() }
 
 func (b *winBackend) SetCell(x, y int, c types.DrawCell) { b.buf.Set(x, y, c) }
 
@@ -242,7 +242,8 @@ func (b *winBackend) readLoop() {
 			// VT-input mode normally swallows. As a fallback we poll size
 			// after each event burst.
 			cols, rows := winGetSize(b.stdout)
-			if cols != b.buf.cols || rows != b.buf.rows {
+			curCols, curRows := b.buf.Size()
+			if cols != curCols || rows != curRows {
 				b.buf.Resize(cols, rows)
 				select {
 				case b.events <- Event{Kind: EventResize, Resize: geom.Point{X: cols, Y: rows}}:

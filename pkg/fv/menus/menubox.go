@@ -204,18 +204,59 @@ func (mb *MenuBox) activate() (menuResult, bool) {
 // openNestedSubmenu opens a MenuBox for items[idx].Sub anchored to the
 // right of this popup at the row of the parent item, runs its modal
 // loop, and returns whatever command came back.
+//
+// If the natural-right placement would push the child off the right
+// edge of the host's extent, the child is flipped to the left of the
+// parent. Similarly, if the bottom of the child would overflow the
+// host's height, the child is raised so its bottom sits on the host's
+// bottom edge. Without these clamps, drawing past the backend's
+// viewport is silently dropped and the user sees a half-visible (or
+// invisible) submenu with no indication of why.
 func (mb *MenuBox) openNestedSubmenu(idx int) menuResult {
 	if mb.Owner == nil {
 		return menuResult{}
 	}
 	parent := mb.Menu.Items[idx]
-	x := mb.Origin.X + mb.Size.X - 1
-	y := mb.Origin.Y + idx + 1
-	sub := NewMenuBox(geom.Point{X: x, Y: y}, parent.Sub)
+	w, h := menuBoxSize(parent.Sub)
+
+	// Walk up to the outermost group; that's the program-level
+	// drawing area whose extent bounds where any submenu can
+	// legitimately live.
+	hostExt := mb.Owner.GetExtent()
+	for g := mb.Owner; g != nil && g.Owner != nil; g = g.Owner {
+		hostExt = g.Owner.GetExtent()
+	}
+
+	origin := nestedSubmenuOrigin(mb.Origin, mb.Size, idx, geom.Point{X: w, Y: h}, hostExt)
+	sub := NewMenuBox(origin, parent.Sub)
 	// Nested popups are never top-level: their Left closes back to us,
 	// their Right opens deeper but does not cycle top-level.
 	sub.topLevel = false
 	return sub.runIn(mb.Owner)
+}
+
+// nestedSubmenuOrigin computes where a nested submenu should anchor.
+// Natural placement is to the right of the parent at the row of the
+// clicked item; if that would overflow the host's right edge, the
+// child flips to the parent's left. Vertical overflow raises the
+// child so its bottom sits on the host's bottom edge. Exposed for
+// testing.
+func nestedSubmenuOrigin(parentOrigin, parentSize geom.Point, idx int, childSize geom.Point, host geom.Rect) geom.Point {
+	x := parentOrigin.X + parentSize.X - 1
+	y := parentOrigin.Y + idx + 1
+	if x+childSize.X > host.B.X {
+		x = parentOrigin.X - childSize.X + 1
+		if x < host.A.X {
+			x = host.A.X
+		}
+	}
+	if y+childSize.Y > host.B.Y {
+		y = host.B.Y - childSize.Y
+		if y < host.A.Y {
+			y = host.A.Y
+		}
+	}
+	return geom.Point{X: x, Y: y}
 }
 
 func (mb *MenuBox) activeItem() *Item {

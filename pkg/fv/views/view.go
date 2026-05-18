@@ -348,15 +348,28 @@ func (b *Base) WriteLine(x, y, w, h int, buf screen.DrawBuffer) {
 	if rootBackend == nil {
 		return
 	}
+	// buf is laid out row-major with w columns per row. Single-row
+	// callers (the common case via WriteBuf and friends) read
+	// buf[col]; multi-row callers read buf[row*w + col]. The earlier
+	// implementation always read buf[col] regardless of row — for
+	// h>1 it silently repeated the first row, which is wrong but
+	// only latent today because every multi-row caller goes through
+	// WriteBuf, which slices one row at a time.
+	//
+	// We deliberately do NOT clip against b's own extent here: some
+	// widgets (Button shadow, Window drop shadow, Tooltip overflow)
+	// legitimately render outside their bounds onto the parent's
+	// fill. Z-order clipping against siblings is the Group layer's
+	// job; out-of-viewport writes are silently dropped by the
+	// backend's SetCell. In this pared-down port that's the only
+	// clipping layer.
 	for row := 0; row < h; row++ {
 		for col := 0; col < w; col++ {
-			if col >= len(buf) {
+			idx := row*w + col
+			if idx >= len(buf) {
 				break
 			}
-			// In this pared-down port, Z-order clipping happens at the
-			// Group layer (Group.dispatchDraw collects rows and only
-			// hands rows to children that intersect their dirty rect).
-			rootBackend.SetCell(gx+x+col, gy+y+row, buf[col])
+			rootBackend.SetCell(gx+x+col, gy+y+row, buf[idx])
 		}
 	}
 }
@@ -428,6 +441,28 @@ type PreFlusher interface {
 
 // SetRootBackend wires the screen target. Called by app.Application.Init.
 func SetRootBackend(rb RootBackend) { rootBackend = rb }
+
+// ForceFullRedraw, when true, makes every Window.Draw invalidate its
+// rect before painting — guaranteeing the cellbuf diff fires for every
+// cell in the window on every frame, regardless of whether content
+// actually changed. Default off.
+//
+// Trades emission efficiency for a stronger correctness guarantee:
+// stale terminal cells that the diff would otherwise skip ("cur ==
+// prev, nothing to emit") get refreshed every frame. Useful when:
+//
+//   - debugging a stale-cell artifact (toggle on; if the artifact
+//     disappears, the bug is in the diff path);
+//   - the host terminal has known quirks where it silently drops or
+//     re-flows previously-written cells (e.g. on copy-mode toggles,
+//     IME composition, screen-reader hooks);
+//   - the rendered content includes glyphs that paint outside their
+//     nominal cell box (some emoji fonts), and you'd rather pay for
+//     a full redraw than chase per-frame visual residue.
+//
+// Safe to toggle at runtime from any goroutine; the next Draw will
+// honor the new value.
+var ForceFullRedraw bool
 
 // Flush pushes the current back buffer to the terminal. Returns nil if
 // no backend is wired.

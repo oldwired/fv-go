@@ -41,6 +41,16 @@ type Program struct {
 	wake      chan struct{} // signaled by MarkDirty from goroutines so waitOne returns
 	// without needing a fresh user keystroke (PTY output, async data, …).
 
+	// callbacks is the delivery channel for Program.CallSoon. A
+	// dedicated channel — rather than the 64-event drivers.Queue
+	// shared with input — means async callbacks survive sustained
+	// input pressure. A previous design routed CallSoon through
+	// EvCommand+CmUserCallback into drivers.Queue, where overflow
+	// silently dropped the fn closure and any cleanup work it
+	// represented (PTY teardown, OnExit, …). Size 1024 is generous
+	// for fan-in from multiple goroutines without ballooning memory.
+	callbacks chan func()
+
 	// OnBackendError, if non-nil, is invoked when the term backend
 	// returns a non-nil error from Flush. Useful for logging transient
 	// write failures during an interactive session. Does NOT abort the
@@ -84,6 +94,18 @@ type Program struct {
 	// installing a phantom view that overrides ChangeBounds to
 	// detect the cascade.
 	OnResize func(cols, rows int)
+
+	// OnDone, if non-nil, runs from the OnPanic recover path before
+	// the panic is re-thrown. Set by NewApplication to point at
+	// Application.Done so PTYs / backend cleanup actually happens
+	// when a panic propagates out of Run.
+	//
+	// A previous design relied on an interface-assertion against the
+	// receiver to find Done — that didn't work because the receiver
+	// is *Program (Run's method receiver), and *Program has no Done
+	// method even when *Application embeds it (Go's method sets
+	// don't promote outward). Explicit hook avoids the trap.
+	OnDone func()
 }
 
 // Stoppable is implemented by views that own external resources (PTYs,
@@ -101,6 +123,7 @@ func NewProgram(backend term.Backend) *Program {
 	bounds := geom.NewRect(0, 0, cols, rows)
 	p := &Program{backend: backend}
 	p.wake = make(chan struct{}, 1)
+	p.callbacks = make(chan func(), 1024)
 	views.InitGroup(&p.Group, bounds)
 	p.SetSelf(p)
 	p.GrowMode = consts.GfGrowAll
@@ -108,16 +131,7 @@ func NewProgram(backend term.Backend) *Program {
 	views.SetEventQueue(p.queue)
 	views.SetPump(p.idle)
 	views.SetWait(p.waitOne)
-	views.SetMarkDirty(func() {
-		p.dirty.Store(true)
-		// Non-blocking nudge to wake waitOne if it's parked. We don't
-		// care about coalescing — a full buffer means a wake is
-		// already pending, which is exactly what we want.
-		select {
-		case p.wake <- struct{}{}:
-		default:
-		}
-	})
+	views.SetMarkDirty(p.markDirty)
 	views.SetRootBackend(backend)
 	// A theme.Set() during the program's lifetime should repaint.
 	// Wired here (not in the theme package) to keep the theme package
@@ -310,11 +324,11 @@ func (p *Program) Run() {
 		defer func() {
 			if r := recover(); r != nil {
 				p.OnPanic(r)
-				// If we're embedded in an Application, this Done call
+				// Run Application.Done (if installed via OnDone). This
 				// is redundant with the caller's `defer app.Done()`
 				// but harmless — Stop() / Close() are idempotent.
-				if a, ok := any(p).(interface{ Done() }); ok {
-					a.Done()
+				if p.OnDone != nil {
+					p.OnDone()
 				}
 				panic(r)
 			}
@@ -323,6 +337,11 @@ func (p *Program) Run() {
 	p.State |= consts.SfActive | consts.SfVisible | consts.SfExposed
 	p.dirty.Store(true) // initial paint
 	for !p.quit {
+		// Drain async callbacks before any event-queue poll, so a
+		// burst of CallSoon work doesn't starve behind input events
+		// — and so cleanup callbacks run before a quit-issuing
+		// CmCloseApp gets a chance to short-circuit the loop.
+		p.drainCallbacks()
 		p.idle()
 		ev, ok := p.queue.Get()
 		if !ok {
@@ -393,23 +412,78 @@ func (p *Program) acceptQuit() bool {
 }
 
 // CallSoon arranges fn to run on the UI goroutine on the next pass
-// of the main loop. Implemented as a synthetic EvCommand+CmUserCallback
-// posted via PostEvent; the main loop intercepts it before any
-// HandleEvent dispatch so user OnCommand handlers never observe it.
+// of the main loop. Sent through a dedicated callbacks channel
+// rather than the input event queue, so async callbacks survive
+// sustained input pressure (a full 64-event input queue used to
+// silently drop CmUserCallback events, losing cleanup closures).
 //
 // Goroutine-safe; intended for use by code that observes async events
 // (PTY readers, animation tickers, host workers) and needs to touch
 // view-tree state without racing the main loop. Panics inside fn
 // propagate up through Run() and hit the existing OnPanic recover.
+//
+// If the callbacks channel is full, CallSoon blocks for up to 50ms
+// before giving up — that matches the "fire-and-forget but
+// eventually heard" expectation better than a silent drop. On
+// timeout it routes through OnEventDropped (if set) so hosts have
+// observability into a stuck UI thread.
 func (p *Program) CallSoon(fn func()) {
 	if fn == nil {
 		return
 	}
-	p.PostEvent(drivers.Event{
-		What:    consts.EvCommand,
-		Command: consts.CmUserCallback,
-		InfoPtr: fn,
-	})
+	if p.callbacks == nil {
+		// Pre-Run / test path: dispatch inline. Matches the
+		// bootstrap-only fallback in views.CallSoon when no
+		// scheduler is installed.
+		fn()
+		return
+	}
+	select {
+	case p.callbacks <- fn:
+		// Nudge waitOne so it returns and the next idle pass picks
+		// up the new callback.
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+		return
+	default:
+	}
+	// Channel is full. Wait briefly before giving up.
+	timer := time.NewTimer(50 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case p.callbacks <- fn:
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+	case <-timer.C:
+		if p.OnEventDropped != nil {
+			p.OnEventDropped(drivers.Event{
+				What:    consts.EvCommand,
+				Command: consts.CmUserCallback,
+				InfoPtr: fn,
+			})
+		}
+	}
+}
+
+// drainCallbacks runs every pending CallSoon closure synchronously
+// on the UI goroutine. Called by Run before each event-queue poll
+// and by waitOne when the callbacks channel signals.
+func (p *Program) drainCallbacks() {
+	for {
+		select {
+		case fn := <-p.callbacks:
+			if fn != nil {
+				fn()
+			}
+			p.dirty.Store(true)
+		default:
+			return
+		}
+	}
 }
 
 // PostEvent queues ev for the main loop to consume on its next pass.
@@ -496,7 +570,29 @@ func walkPreFlush(g *views.Group, b views.RootBackend) {
 // MarkDirty asks the program to repaint on the next idle pass. Handy
 // when external code (e.g., async data arriving) mutates a view's
 // state outside the event/anim path.
-func (p *Program) MarkDirty() { p.dirty.Store(true) }
+//
+// Goroutine-safe. Both the dirty flag and the wake channel nudge are
+// done so a parked waitOne returns immediately rather than waiting
+// for the next user keystroke — without the wake nudge, async data
+// could pile up dirty=true but no repaint until input arrived.
+func (p *Program) MarkDirty() { p.markDirty() }
+
+// markDirty is the shared implementation of MarkDirty and the
+// views.SetMarkDirty closure installed by NewProgram. Keeping them
+// pointed at one function prevents the two from drifting (the public
+// method used to only set the flag, leaving direct callers without
+// the wake nudge — a real bug for async data arriving from
+// non-UI-goroutine paths).
+func (p *Program) markDirty() {
+	p.dirty.Store(true)
+	// Non-blocking nudge to wake waitOne if it's parked. We don't
+	// care about coalescing — a full buffer means a wake is
+	// already pending, which is exactly what we want.
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
 
 // pump drains term events into the FV queue. Returns true if at least
 // one event was pushed — the idle loop uses that to decide whether
@@ -660,6 +756,10 @@ func NewApplication() (*Application, error) {
 		return nil, err
 	}
 	a := &Application{Program: NewProgram(be)}
+	// Wire the panic-recovery cleanup hook. Without this, an OnPanic
+	// in Run would re-throw without tearing down PTYs / restoring the
+	// terminal — the user would see a corrupted terminal post-crash.
+	a.Program.OnDone = a.Done
 	cols, rows := be.Size()
 	desktopBounds := geom.NewRect(0, 1, cols, rows-1)
 	a.SetDesktop(NewDesktop(desktopBounds))
@@ -672,9 +772,28 @@ func NewApplication() (*Application, error) {
 // tree first to call Stop() on any descendant that satisfies the
 // Stoppable interface (Terminal does), so child PTYs get SIGHUP
 // before the terminal is restored. Idempotent — safe to call twice.
+//
+// After tree shutdown, every package-global hook NewProgram /
+// NewApplication installed is cleared back to nil. Without this, a
+// late goroutine (PTY reader still draining, anim ticker not yet
+// stopped, host worker doing a final views.MarkDirty) could call
+// into a closed backend or a dead queue. The consumers already
+// nil-check their hooks, so clearing makes those calls quiet no-ops
+// instead of crashes.
 func (a *Application) Done() {
 	walkStop(&a.Group)
 	_ = a.backend.Close()
+	// Clear every global hook installed by NewProgram /
+	// NewApplication. Order doesn't matter — each is independently
+	// nil-tolerant at its call site.
+	views.SetEventQueue(nil)
+	views.SetPump(nil)
+	views.SetWait(nil)
+	views.SetMarkDirty(nil)
+	views.SetCallSoon(nil)
+	views.SetRootBackend(nil)
+	theme.SetOnChange(nil)
+	clipboard.SetWriter(nil)
 }
 
 // walkStop descends the view tree depth-first / post-order, mirroring

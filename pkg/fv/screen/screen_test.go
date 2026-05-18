@@ -36,3 +36,72 @@ func TestMakeDrawBufferCapClampsToMaxViewWidth(t *testing.T) {
 		t.Errorf("oversized request should clamp to MaxViewWidth; got len=%d", len(b))
 	}
 }
+
+// TestDrawStrNegativePosClipsLeft: an oversized centered label whose
+// computed start position is negative used to vanish entirely
+// (DrawStr broke on x<0). It now advances past the off-screen runes
+// and renders the visible suffix.
+func TestDrawStrNegativePosClipsLeft(t *testing.T) {
+	buf := MakeDrawBuffer(5)
+	DrawStr(buf, -3, "abcdefgh", 0)
+	got := ""
+	for _, c := range buf {
+		got += c.Ch
+	}
+	if got != "defgh" {
+		t.Errorf("DrawStr(-3, \"abcdefgh\"): got %q, want %q", got, "defgh")
+	}
+}
+
+// TestDrawStrZWJClusterCollapsesToOneCluster regression: a ZWJ emoji
+// cluster (family, rainbow flag, etc.) used to advance our cellbuf
+// once per component while ZWJ-aware terminals render the whole
+// cluster as one wide glyph. The leftover trailing cells of our
+// cellbuf never got painted in the terminal, so desktop background
+// or other stale content showed through at the right side of any row
+// containing such a cluster.
+//
+// Correctness invariant: the two cellbuf cells (leading + continuation)
+// taken together hold the full cluster text, and the next char after
+// the cluster lands at cellbuf column 2 — not column 8 like before
+// the fix.
+func TestDrawStrZWJClusterCollapsesToOneCluster(t *testing.T) {
+	buf := MakeDrawBuffer(20)
+	// 4-person family ZWJ sequence.
+	family := "\U0001F468‍\U0001F469‍\U0001F467‍\U0001F466"
+	DrawStr(buf, 0, family+"X", 0)
+
+	// The full cluster text is split between the leading cell and
+	// its continuation. When the cellbuf span aggregator concatenates
+	// them, the terminal sees the complete ZWJ sequence and renders
+	// one glyph.
+	combined := buf[0].Ch + buf[1].Ch
+	if combined != family {
+		t.Errorf("buf[0]+buf[1] = %q, want full cluster %q", combined, family)
+	}
+	// The post-cluster 'X' must land at column 2. Before the fix
+	// this would have been at column 8 (4 emojis × 2 cells).
+	if buf[2].Ch != "X" {
+		t.Errorf("buf[2] = %q, want %q (post-cluster char must not drift)", buf[2].Ch, "X")
+	}
+}
+
+// TestDrawCStrNegativePosClipsLeft: same clip-left behavior with the
+// hotkey-marker variant. The '~' toggles still apply to the
+// off-screen prefix so the on-screen colors match what the user
+// would see if the field were wider.
+func TestDrawCStrNegativePosClipsLeft(t *testing.T) {
+	buf := MakeDrawBuffer(5)
+	// "ab~c~defgh" — c is the only hot rune; with start pos -3 the
+	// visible window is "defgh", all in normal color, but the
+	// function should have processed the '~' markers correctly so
+	// nothing is corrupted.
+	DrawCStr(buf, -3, "ab~c~defgh", 0x07, 0x0F)
+	got := ""
+	for _, c := range buf {
+		got += c.Ch
+	}
+	if got != "defgh" {
+		t.Errorf("DrawCStr(-3, \"ab~c~defgh\"): got %q, want %q", got, "defgh")
+	}
+}

@@ -77,6 +77,72 @@ func TestDeleteShiftsCurrentWhenEarlierSiblingRemoved(t *testing.T) {
 	}
 }
 
+// TestDeleteRestoresBothSelectedAndFocused: when a modal closes the
+// previously-current view comes back into focus. The fix restores
+// BOTH SfSelected and SfFocused (the bug let SfFocused stay clear,
+// so the resumed view drew without a caret).
+func TestDeleteRestoresBothSelectedAndFocused(t *testing.T) {
+	g := NewGroup(geom.NewRect(0, 0, 80, 24))
+	g.current = -1
+	g.Children = nil
+
+	win := newDummy(geom.NewRect(0, 0, 40, 10))
+	win.Options |= consts.OfSelectable
+	modal := newDummy(geom.NewRect(0, 0, 30, 8))
+	modal.Options |= consts.OfSelectable
+
+	g.Insert(win)
+	g.Insert(modal)
+	g.Focus(modal)
+	if g.Current() != View(modal) {
+		t.Fatalf("setup: focused view is %v, want modal", g.Current())
+	}
+
+	g.Delete(modal)
+	if g.Current() != View(win) {
+		t.Fatalf("after Delete: %v, want window", g.Current())
+	}
+	st := win.State
+	if st&consts.SfSelected == 0 {
+		t.Errorf("restored view missing SfSelected (state=%#x)", st)
+	}
+	if st&consts.SfFocused == 0 {
+		t.Errorf("restored view missing SfFocused (state=%#x) — bug regression", st)
+	}
+}
+
+// TestInsertBeforeShiftsCurrent: inserting at a position at or before
+// the current index must shift current right so the same logical
+// view stays focused.
+func TestInsertBeforeShiftsCurrent(t *testing.T) {
+	g := NewGroup(geom.NewRect(0, 0, 80, 24))
+	g.current = -1
+	g.Children = nil
+
+	a := newDummy(geom.Rect{})
+	a.Options |= consts.OfSelectable
+	b := newDummy(geom.Rect{})
+	b.Options |= consts.OfSelectable
+	c := newDummy(geom.Rect{})
+	c.Options |= consts.OfSelectable
+
+	g.Insert(a)
+	g.Insert(b)
+	g.Focus(b)
+	if g.Current() != View(b) {
+		t.Fatalf("setup: current=%v, want b", g.Current())
+	}
+
+	// Insert c before a (idx=0); current was 1 (b), should shift to 2.
+	g.InsertBefore(c, a)
+	if g.Current() != View(b) {
+		t.Errorf("after InsertBefore(c, a): current=%v, want b (still)", g.Current())
+	}
+	if g.current != 2 {
+		t.Errorf("after InsertBefore(c, a): current index=%d, want 2", g.current)
+	}
+}
+
 // TestInsertPassive verifies the new InsertPassive primitive does not
 // take focus even on an otherwise-empty group.
 func TestInsertPassive(t *testing.T) {
