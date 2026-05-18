@@ -1,7 +1,12 @@
 name: ci
 on:
+  # Tag pushes are excluded here — release.yml invokes this workflow
+  # via workflow_call against the tagged commit, so letting push fire
+  # on tags too would run every CI job twice for each tag.
   push:
+    branches: ['**']
   pull_request:
+  workflow_call:
 
 # Minimal-by-default token scope. Every job in this workflow only
 # needs to read repo contents (checkout, run tests, fetch deps).
