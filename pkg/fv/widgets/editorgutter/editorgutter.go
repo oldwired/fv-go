@@ -54,7 +54,7 @@ func New(bounds geom.Rect, ed *editor.Editor, providers ...Provider) *EditorGutt
 		Color:     theme.Get().StatNeutral,
 	}
 	g.SetSelf(g)
-	g.GrowMode = consts.GfGrowLoX | consts.GfGrowHiY // sticks to left edge, stretches vertically
+	g.GrowMode = consts.GfGrowHiY // sticks to left edge, stretches vertically
 	return g
 }
 
