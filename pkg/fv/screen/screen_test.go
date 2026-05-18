@@ -67,8 +67,11 @@ func TestDrawStrNegativePosClipsLeft(t *testing.T) {
 // the fix.
 func TestDrawStrZWJClusterCollapsesToOneCluster(t *testing.T) {
 	buf := MakeDrawBuffer(20)
-	// 4-person family ZWJ sequence.
-	family := "\U0001F468‍\U0001F469‍\U0001F467‍\U0001F466"
+	// 4-person family ZWJ sequence — 👨 ZWJ 👩 ZWJ 👧 ZWJ 👦.
+	// ZWJ (U+200D) is escaped so the source bytes stay readable —
+	// raw ZWJ is invisible and trips staticcheck's ST1018 ("string
+	// literal contains Unicode format characters").
+	family := "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466"
 	DrawStr(buf, 0, family+"X", 0)
 
 	// The full cluster text is split between the leading cell and

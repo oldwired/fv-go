@@ -55,7 +55,9 @@ func cursorCol(in *bufio.Reader) int {
 		return -1
 	}
 	var col int
-	fmt.Sscanf(s[i+1:], "%d", &col)
+	if _, err := fmt.Sscanf(s[i+1:], "%d", &col); err != nil {
+		return -1
+	}
 	return col
 }
 
@@ -69,7 +71,7 @@ func main() {
 		fmt.Println("make-raw failed:", err)
 		os.Exit(2)
 	}
-	defer term.Restore(int(os.Stdin.Fd()), st)
+	defer func() { _ = term.Restore(int(os.Stdin.Fd()), st) }()
 
 	in := bufio.NewReader(os.Stdin)
 
