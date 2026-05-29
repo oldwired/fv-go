@@ -11,8 +11,8 @@ package views
 // reaches code that posts events, rather than silently queue them
 // into a zombie buffer that no dispatch loop will ever drain.
 func ResetForTest() {
-	globalQueue = nil
-	rootBackend = nil
+	globalQueue.Store(nil)
+	rootBackend.Store(nil)
 	pumpFn = nil
 	waitFn = nil
 	dirtyFn = nil

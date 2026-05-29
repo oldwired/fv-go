@@ -7,20 +7,17 @@ import (
 	"github.com/rivo/uniseg"
 )
 
-// Word-wrap + reformat support. The editor stores raw `[]byte` and
-// wrap rendering operates on top — there's no insertion of soft-wrap
-// markers into the buffer. RightMargin (= 0 means "use view width")
-// is the wrap point; the wrap logic respects existing line breaks
-// (so an unwrapped buffer renders identically to the no-wrap path).
+// Paragraph reformat support. The editor stores raw `[]byte`; Reformat
+// rewrites the paragraph at the cursor to fit effectiveMargin. There is
+// no visual soft-wrap — long lines clip at the view's right edge.
 //
-// Tabs expand to TabWidth in the editor render but for wrap-column
-// calculation we use grapheme-cluster widths via uniseg (so CJK
-// "你好" advances col by 4, not 2; emoji clusters advance by 2 not by
-// the rune count).
+// For wrap-column calculation we use grapheme-cluster widths via uniseg
+// (so CJK "你好" advances col by 4, not 2; emoji clusters advance by 2
+// not by the rune count).
 
-// effectiveMargin returns the column at which to wrap, given the
-// view's current size and an optional explicit RightMargin. 0 means
-// "fit the view width."
+// effectiveMargin returns the column Reformat wraps to, given the view's
+// current size and an optional explicit RightMargin. 0 means "fit the
+// view width."
 func (e *Editor) effectiveMargin() int {
 	if e.RightMargin > 0 {
 		return e.RightMargin
@@ -29,69 +26,6 @@ func (e *Editor) effectiveMargin() int {
 		return e.Size.X
 	}
 	return 80
-}
-
-// wrapPoints returns the byte offsets at which a buffer line, given
-// as a slice of bytes, should soft-wrap. The first segment is implied
-// (starts at 0); each returned offset is the start of a continuation
-// segment. Offsets are relative to the start of `line`.
-//
-// Algorithm: walk runes, track current column. When the column would
-// exceed margin, look backward for the last whitespace and wrap
-// there. If there's no whitespace in the segment, hard-wrap at the
-// margin column. Trailing whitespace at a wrap point is consumed (so
-// the next segment doesn't start with a space).
-func wrapPoints(line []byte, margin int) []int {
-	if margin <= 0 || len(line) == 0 {
-		return nil
-	}
-	var out []int
-	segStart := 0
-	col := 0
-	lastSpace := -1 // byte offset of the last space in the current segment
-	state := -1
-	for i := 0; i < len(line); {
-		cluster, _, width, newState := uniseg.FirstGraphemeCluster(line[i:], state)
-		if len(cluster) == 0 {
-			break
-		}
-		state = newState
-		w := width
-		if w <= 0 {
-			w = 1
-		}
-		isSpace := len(cluster) == 1 && (cluster[0] == ' ' || cluster[0] == '\t')
-		if isSpace {
-			lastSpace = i
-		}
-		col += w
-		next := i + len(cluster)
-		if col > margin {
-			breakAt := lastSpace
-			if breakAt < 0 || breakAt <= segStart {
-				breakAt = i // hard-wrap; current cluster begins new segment
-			} else {
-				breakAt++ // skip the space itself
-			}
-			out = append(out, breakAt)
-			segStart = breakAt
-			col = 0
-			lastSpace = -1
-			state = -1 // reset cluster state after a wrap break
-			// Re-walk: the next cluster starts at breakAt; if that
-			// equals i, we're hard-wrapping and need to count
-			// the current cluster's width in the new segment.
-			if breakAt == i {
-				col = w
-				i = next
-				continue
-			}
-			i = breakAt
-			continue
-		}
-		i = next
-	}
-	return out
 }
 
 // Reformat reflows the paragraph containing the cursor to fit within

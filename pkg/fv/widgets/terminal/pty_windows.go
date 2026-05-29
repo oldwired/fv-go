@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode/utf16"
 	"unsafe"
 
@@ -27,6 +28,11 @@ import (
 // shutdown via Close() still goes through ClosePseudoConsole +
 // TerminateProcess.
 type ptyHandle struct {
+	// mu guards the handle fields below. Close (called from Stop on the
+	// UI goroutine) races Wait/Resize (on the waitLoop goroutine): without
+	// it both the field reads/writes and closing a handle another
+	// goroutine is blocked on are unsynchronized.
+	mu         sync.Mutex
 	hPC        windows.Handle
 	pipeInW    windows.Handle // parent → child stdin
 	pipeOutR   windows.Handle // child → parent stdout
@@ -200,6 +206,8 @@ func (p *ptyHandle) Read(b []byte) (int, error)  { return p.outFile.Read(b) }
 func (p *ptyHandle) Write(b []byte) (int, error) { return p.inFile.Write(b) }
 
 func (p *ptyHandle) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// Order matters: closing the pseudo-console signals EOF to the
 	// child and unblocks any pending read on the parent's stdout end.
 	if p.hPC != 0 {
@@ -231,6 +239,8 @@ func (p *ptyHandle) Close() error {
 }
 
 func (p *ptyHandle) Resize(cols, rows int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.hPC == 0 {
 		return errors.New("pty: closed")
 	}
@@ -238,14 +248,29 @@ func (p *ptyHandle) Resize(cols, rows int) error {
 }
 
 func (p *ptyHandle) Wait() error {
-	if p.procHandle == 0 {
+	// Duplicate the process handle under the lock and wait on the copy.
+	// Close may CloseHandle(procHandle) while we're blocked here; waiting
+	// on our own duplicate keeps the kernel object alive (and valid for
+	// GetExitCodeProcess) independent of Close, and Close's
+	// TerminateProcess still signals the object so this wait returns.
+	p.mu.Lock()
+	var dup windows.Handle
+	if p.procHandle != 0 {
+		cur := windows.CurrentProcess()
+		if err := windows.DuplicateHandle(cur, p.procHandle, cur, &dup, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+			dup = 0
+		}
+	}
+	p.mu.Unlock()
+	if dup == 0 {
 		return errors.New("pty: no process")
 	}
-	if _, err := windows.WaitForSingleObject(p.procHandle, windows.INFINITE); err != nil {
+	defer windows.CloseHandle(dup)
+	if _, err := windows.WaitForSingleObject(dup, windows.INFINITE); err != nil {
 		return err
 	}
 	var code uint32
-	_ = windows.GetExitCodeProcess(p.procHandle, &code)
+	_ = windows.GetExitCodeProcess(dup, &code)
 	if code != 0 {
 		return fmt.Errorf("exit status %d", code)
 	}

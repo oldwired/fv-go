@@ -15,6 +15,8 @@
 package views
 
 import (
+	"sync/atomic"
+
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
@@ -218,20 +220,44 @@ func (b *Base) ChangeBounds(r geom.Rect) {
 }
 
 // CalcBounds computes the new bounds this view should occupy when its
-// parent grew by delta. Each gf*Grow* bit pulls one corner along.
-func (b *Base) CalcBounds(delta geom.Point) geom.Rect {
+// parent resized. delta is the parent's size change; newOwnerSize is the
+// parent's size after the resize. Each gf*Grow* Lo/Hi bit pulls the
+// matching corner along by delta — UNLESS gfGrowRel is also set, in
+// which case the selected corners scale proportionally to the parent's
+// size (newOwnerSize / oldOwnerSize), matching Turbo Vision's gfGrowRel.
+func (b *Base) CalcBounds(delta, newOwnerSize geom.Point) geom.Rect {
 	cur := b.GetBounds()
+	rel := b.GrowMode&consts.GfGrowRel != 0
+	oldOwnerSize := geom.Point{X: newOwnerSize.X - delta.X, Y: newOwnerSize.Y - delta.Y}
+	growX := func(coord int) int {
+		if rel {
+			if oldOwnerSize.X <= 0 {
+				return coord
+			}
+			return (coord*newOwnerSize.X + oldOwnerSize.X/2) / oldOwnerSize.X
+		}
+		return coord + delta.X
+	}
+	growY := func(coord int) int {
+		if rel {
+			if oldOwnerSize.Y <= 0 {
+				return coord
+			}
+			return (coord*newOwnerSize.Y + oldOwnerSize.Y/2) / oldOwnerSize.Y
+		}
+		return coord + delta.Y
+	}
 	if b.GrowMode&consts.GfGrowLoX != 0 {
-		cur.A.X += delta.X
+		cur.A.X = growX(cur.A.X)
 	}
 	if b.GrowMode&consts.GfGrowLoY != 0 {
-		cur.A.Y += delta.Y
+		cur.A.Y = growY(cur.A.Y)
 	}
 	if b.GrowMode&consts.GfGrowHiX != 0 {
-		cur.B.X += delta.X
+		cur.B.X = growX(cur.B.X)
 	}
 	if b.GrowMode&consts.GfGrowHiY != 0 {
-		cur.B.Y += delta.Y
+		cur.B.Y = growY(cur.B.Y)
 	}
 	return cur
 }
@@ -304,15 +330,20 @@ func (b *Base) globalOriginDelta() (int, int) {
 
 // PutEvent re-injects an event into the program queue. Stub: bound by
 // the App layer at startup via SetEventQueue.
-var globalQueue *drivers.Queue
+//
+// Held in an atomic pointer: app.Application.Done clears it to nil at
+// shutdown while late goroutines (a PTY reader's final PutEvent, an anim
+// ticker) may still read it. The atomic makes that store/load
+// data-race-free; the nil-check at each use site keeps it a no-op.
+var globalQueue atomic.Pointer[drivers.Queue]
 
 // SetEventQueue is called once by app.NewProgram to plug in the queue.
-func SetEventQueue(q *drivers.Queue) { globalQueue = q }
+func SetEventQueue(q *drivers.Queue) { globalQueue.Store(q) }
 
 // GetEventQueue returns the program-wide queue (set by app.NewProgram),
 // or nil if not yet wired. Used by MenuBox.Run, ExecView, and similar
 // loops that need to pull events synchronously.
-func GetEventQueue() *drivers.Queue { return globalQueue }
+func GetEventQueue() *drivers.Queue { return globalQueue.Load() }
 
 // GetPump returns the pump callback set by app.NewProgram, or nil.
 // MenuBox / dialogs call it to drive event collection during a modal
@@ -324,8 +355,8 @@ func GetPump() func() { return pumpFn }
 func GetWait() func() { return waitFn }
 
 func (b *Base) PutEvent(ev *drivers.Event) {
-	if globalQueue != nil {
-		globalQueue.Put(*ev)
+	if q := globalQueue.Load(); q != nil {
+		q.Put(*ev)
 	}
 }
 
@@ -345,7 +376,8 @@ func (b *Base) WriteLine(x, y, w, h int, buf screen.DrawBuffer) {
 	gx, gy := b.globalOriginDelta()
 	gx += b.Origin.X
 	gy += b.Origin.Y
-	if rootBackend == nil {
+	rb := getRootBackend()
+	if rb == nil {
 		return
 	}
 	// buf is laid out row-major with w columns per row. Single-row
@@ -369,7 +401,7 @@ func (b *Base) WriteLine(x, y, w, h int, buf screen.DrawBuffer) {
 			if idx >= len(buf) {
 				break
 			}
-			rootBackend.SetCell(gx+x+col, gy+y+row, buf[idx])
+			rb.SetCell(gx+x+col, gy+y+row, buf[idx])
 		}
 	}
 }
@@ -405,7 +437,20 @@ func (b *Base) WriteChar(x, y int, c rune, color byte, count int) {
 
 // rootBackend is set by app.Application.Init so the view tree can write
 // cells. Tests can leave it nil — WriteLine becomes a no-op.
-var rootBackend RootBackend
+//
+// Held in an atomic pointer for the same reason as globalQueue:
+// Application.Done stores nil at shutdown while a late goroutine may
+// still be drawing. getRootBackend loads it once per use; callers that
+// touch it repeatedly (WriteLine's per-cell loop) cache the local.
+var rootBackend atomic.Pointer[RootBackend]
+
+// getRootBackend returns the current screen target, or nil if unwired.
+func getRootBackend() RootBackend {
+	if p := rootBackend.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
 
 // RootBackend is the slice of term.Backend that views can call directly.
 //
@@ -440,7 +485,13 @@ type PreFlusher interface {
 }
 
 // SetRootBackend wires the screen target. Called by app.Application.Init.
-func SetRootBackend(rb RootBackend) { rootBackend = rb }
+func SetRootBackend(rb RootBackend) {
+	if rb == nil {
+		rootBackend.Store(nil)
+		return
+	}
+	rootBackend.Store(&rb)
+}
 
 // ForceFullRedraw, when true, makes every Window.Draw invalidate its
 // rect before painting — guaranteeing the cellbuf diff fires for every
@@ -467,29 +518,32 @@ var ForceFullRedraw bool
 // Flush pushes the current back buffer to the terminal. Returns nil if
 // no backend is wired.
 func Flush() error {
-	if rootBackend == nil {
+	rb := getRootBackend()
+	if rb == nil {
 		return nil
 	}
-	return rootBackend.Flush()
+	return rb.Flush()
 }
 
 // GetCell reads one cell of the current back buffer at screen coordinates
 // (x, y). Used by shadow rendering to preserve underlying glyphs.
 func GetCell(x, y int) types.DrawCell {
-	if rootBackend == nil {
+	rb := getRootBackend()
+	if rb == nil {
 		return types.DrawCell{}
 	}
-	return rootBackend.GetCell(x, y)
+	return rb.GetCell(x, y)
 }
 
 // WriteRaw emits raw bytes to the terminal, bypassing the cell buffer.
 // Used by SIXEL graphics paths where we need to drop a DCS string at
 // the cursor's current position.
 func WriteRaw(s string) error {
-	if rootBackend == nil {
+	rb := getRootBackend()
+	if rb == nil {
 		return nil
 	}
-	return rootBackend.WriteRaw(s)
+	return rb.WriteRaw(s)
 }
 
 // InvalidateRect forces every cell in the given screen-coords rectangle
@@ -499,12 +553,13 @@ func WriteRaw(s string) error {
 // diff-equal the previous frame (both " ") and the SIXEL graphics
 // would visibly persist with stale content under them.
 func InvalidateRect(x, y, w, h int) {
-	if rootBackend == nil {
+	rb := getRootBackend()
+	if rb == nil {
 		return
 	}
 	for yy := y; yy < y+h; yy++ {
 		for xx := x; xx < x+w; xx++ {
-			rootBackend.Invalidate(xx, yy)
+			rb.Invalidate(xx, yy)
 		}
 	}
 }

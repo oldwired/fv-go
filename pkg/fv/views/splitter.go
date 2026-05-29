@@ -96,7 +96,7 @@ func (s *Splitter) HandleEvent(ev *drivers.Event) {
 	if ev.What != consts.EvMouseDown {
 		return
 	}
-	q := globalQueue
+	q := globalQueue.Load()
 	if q == nil {
 		return
 	}
@@ -256,6 +256,21 @@ func (g *SplitGroup) recalc() {
 	}
 	w, h := g.Size.X, g.Size.Y
 	if g.Orientation == SplitVertical {
+		if w < 3 {
+			// Too narrow for Panel1 + splitter + Panel2. Give Panel1 the
+			// width and collapse the splitter/Panel2 to zero width at the
+			// right edge — clamping SplitPos here would still yield a
+			// negative Panel2 rect.
+			if w < 0 {
+				w = 0
+			}
+			g.Panel1.ChangeBounds(geom.NewRect(0, 0, w, h))
+			if g.Splitter != nil {
+				g.Splitter.ChangeBounds(geom.NewRect(w, 0, w, h))
+			}
+			g.Panel2.ChangeBounds(geom.NewRect(w, 0, w, h))
+			return
+		}
 		if g.SplitPos < 1 {
 			g.SplitPos = 1
 		}
@@ -268,6 +283,17 @@ func (g *SplitGroup) recalc() {
 		}
 		g.Panel2.ChangeBounds(geom.NewRect(g.SplitPos+1, 0, w, h))
 	} else {
+		if h < 3 {
+			if h < 0 {
+				h = 0
+			}
+			g.Panel1.ChangeBounds(geom.NewRect(0, 0, w, h))
+			if g.Splitter != nil {
+				g.Splitter.ChangeBounds(geom.NewRect(0, h, w, h))
+			}
+			g.Panel2.ChangeBounds(geom.NewRect(0, h, w, h))
+			return
+		}
 		if g.SplitPos < 1 {
 			g.SplitPos = 1
 		}

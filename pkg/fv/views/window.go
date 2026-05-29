@@ -307,7 +307,8 @@ func (w *Window) Draw() {
 // time this Window's drawShadow runs, the cells around its border
 // already hold whatever was drawn behind it for this frame.
 func (w *Window) drawShadow() {
-	if rootBackend == nil {
+	rb := getRootBackend()
+	if rb == nil {
 		return
 	}
 	sx, sy := w.ScreenOrigin()
@@ -316,8 +317,8 @@ func (w *Window) drawShadow() {
 		for dx := 0; dx < 2; dx++ {
 			cellX := sx + w.Size.X + dx
 			cellY := sy + y
-			under := castShadow(rootBackend.GetCell(cellX, cellY))
-			rootBackend.SetCell(cellX, cellY, under)
+			under := castShadow(rb.GetCell(cellX, cellY))
+			rb.SetCell(cellX, cellY, under)
 		}
 	}
 	// Bottom edge: cols 2..w+1 (offset by 2 so the corner doesn't
@@ -325,8 +326,8 @@ func (w *Window) drawShadow() {
 	for dx := 2; dx < w.Size.X+2; dx++ {
 		cellX := sx + dx
 		cellY := sy + w.Size.Y
-		under := castShadow(rootBackend.GetCell(cellX, cellY))
-		rootBackend.SetCell(cellX, cellY, under)
+		under := castShadow(rb.GetCell(cellX, cellY))
+		rb.SetCell(cellX, cellY, under)
 	}
 }
 
@@ -574,7 +575,7 @@ func clampResize(w *Window, reqW, reqH int) (int, int) {
 // cursor delta and re-issues ChangeBounds so children grow with the
 // frame.
 func (w *Window) resizeLoop(start *drivers.Event) {
-	q := globalQueue
+	q := globalQueue.Load()
 	if q == nil {
 		return
 	}
@@ -623,7 +624,7 @@ func (w *Window) resizeLoop(start *drivers.Event) {
 // from the global queue so the move is fluid; a redraw happens between
 // each event via the pump callback.
 func (w *Window) dragLoop(start *drivers.Event) {
-	q := globalQueue
+	q := globalQueue.Load()
 	if q == nil {
 		return
 	}

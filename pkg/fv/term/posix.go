@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -51,6 +52,11 @@ type posixBackend struct {
 	// screen / mouse modes potentially active on shutdown.
 	closeMu sync.Mutex
 	closed  bool
+
+	// clearPending is set by the SIGWINCH handler so the next Flush (on
+	// the UI goroutine) emits the full-screen wipe. Writing it from the
+	// signal goroutine would race the Flush writer mid-escape-sequence.
+	clearPending atomic.Bool
 }
 
 func (b *posixBackend) Init() error {
@@ -216,10 +222,24 @@ func (b *posixBackend) MarkClean(x, y int) { b.buf.markClean(x, y) }
 func (b *posixBackend) Invalidate(x, y int) { b.buf.invalidate(x, y) }
 
 func (b *posixBackend) Flush() error {
+	if b.clearPending.Swap(false) {
+		// SIGWINCH requested a full-screen wipe. Emit it here on the UI
+		// goroutine instead of from the signal handler, which would
+		// interleave bytes with this writer mid-escape. Resize already
+		// zeroed the prev buffer, so the diff below repaints every cell.
+		if _, err := b.writer.WriteString("\x1b[2J"); err != nil {
+			return err
+		}
+	}
 	spans := b.buf.dirty()
 	if len(spans) == 0 && b.cursorOn {
 		// at minimum reposition cursor if it should be on
 		_, err := b.writer.WriteString(cursorMove(b.cursorX, b.cursorY) + "\x1b[?25h")
+		// The encoder's SGR state is only valid immediately after a full
+		// paint that ended with \x1b[0m. A cursor-only flush emits none,
+		// so reset hasLast or the next paint's first span may skip the
+		// SGR it actually needs and draw with a stale color.
+		b.enc.hasLast = false
 		return err
 	}
 
@@ -287,11 +307,10 @@ func (b *posixBackend) signalLoop() {
 				continue
 			}
 			b.buf.Resize(cols, rows)
-			// Wipe the terminal so any cells from the previous size
-			// disappear before the next idle redraw fills the whole
-			// new viewport. Without this, stale cells from rows /
-			// columns that no longer exist linger during a drag.
-			_, _ = b.out.WriteString("\x1b[2J")
+			// Defer the full-screen wipe to the next Flush on the UI
+			// goroutine. Writing "\x1b[2J" to b.out here would race the
+			// Flush writer and interleave bytes mid-escape-sequence.
+			b.clearPending.Store(true)
 			select {
 			case b.events <- Event{Kind: EventResize, Resize: geom.Point{X: cols, Y: rows}}:
 			case <-b.stop:

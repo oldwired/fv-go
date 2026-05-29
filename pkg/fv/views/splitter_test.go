@@ -44,6 +44,28 @@ func TestSplitGroupRatio(t *testing.T) {
 	}
 }
 
+// TestSplitGroupDegenerateSizeNoNegativePanels: at sizes too small to
+// hold both panels plus the splitter, recalc must not produce a negative
+// panel rect (which propagated junk Size.X/Y into child layout).
+func TestSplitGroupDegenerateSizeNoNegativePanels(t *testing.T) {
+	for _, w := range []int{1, 2, 3} {
+		g := NewSplitGroup(geom.NewRect(0, 0, w, 10), SplitVertical, 1)
+		p1, p2 := newDummy(geom.Rect{}), newDummy(geom.Rect{})
+		g.SetPanels(p1, p2)
+		if p1.Size.X < 0 || p2.Size.X < 0 {
+			t.Errorf("vertical w=%d: negative panel width p1=%d p2=%d", w, p1.Size.X, p2.Size.X)
+		}
+	}
+	for _, h := range []int{1, 2, 3} {
+		g := NewSplitGroup(geom.NewRect(0, 0, 10, h), SplitHorizontal, 1)
+		p1, p2 := newDummy(geom.Rect{}), newDummy(geom.Rect{})
+		g.SetPanels(p1, p2)
+		if p1.Size.Y < 0 || p2.Size.Y < 0 {
+			t.Errorf("horizontal h=%d: negative panel height p1=%d p2=%d", h, p1.Size.Y, p2.Size.Y)
+		}
+	}
+}
+
 // dummy is a minimal View for use in splitter tests.
 type dummy struct{ Base }
 

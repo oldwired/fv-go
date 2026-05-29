@@ -57,11 +57,14 @@ func newGridDemoWindow(a *app.Application, bounds geom.Rect) *gridDemoWindow {
 
 	W, H := w.Size.X, w.Size.Y
 
-	// Hint row at the top of the interior. GfGrowHiX so the right
-	// edge follows the window when resized.
+	// Hint row at the top of the interior. GfGrowHiX so the right edge
+	// follows the window when resized; GfGrowRel makes that edge scale
+	// proportionally to the window width (Turbo Vision relative grow)
+	// rather than translating by the raw delta — a live exercise of the
+	// gfGrowRel path in CalcBounds.
 	hint := "Sort: click header  ·  Filter: type in filter row  ·  Edit: Enter/F2  ·  Copy: Ctrl+C  ·  Range: Shift+arrows"
 	w.hint = dialogs.NewStaticText(geom.NewRect(1, 1, W-1, 2), hint)
-	w.hint.GrowMode = consts.GfGrowHiX
+	w.hint.GrowMode = consts.GfGrowHiX | consts.GfGrowRel
 	w.Insert(w.hint)
 
 	// Status row at the bottom, just above the toolbar. Anchor both

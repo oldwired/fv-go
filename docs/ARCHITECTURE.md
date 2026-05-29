@@ -80,12 +80,18 @@ a lock, release, then `views.MarkDirty()`.
 ## CallSoon — UI-thread marshaling
 
 Async callbacks from goroutines (Terminal's reader, anim tickers,
-host workers) post a synthetic `EvCommand + CmUserCallback` event to
-the queue via `Program.CallSoon(fn)`. The main loop intercepts the
-command before any user `OnCommand` handler, invokes `fn`, and
-continues. This means host code wired to `Terminal.OnTitle` /
-`OnCWDChange` / `OnActivity` / `OnExit` always runs on the UI
+host workers) are enqueued on a dedicated `Program.callbacks` channel
+via `Program.CallSoon(fn)`. The closures are drained and invoked on
+the UI goroutine at the top of `idle()` — so they run not just from
+the main `Run` loop but from every modal loop (`ExecView`,
+`MenuBox.Run`, popupmenu / fuzzyfinder / stddlg) too, since those all
+pump through `idle`. This means host code wired to `Terminal.OnTitle`
+/ `OnCWDChange` / `OnActivity` / `OnExit` always runs on the UI
 goroutine and can safely touch the view tree.
+
+(A separate `EvCommand + CmUserCallback` event remains supported for
+host code that wants to marshal a closure via `PostEvent` from a
+background goroutine; `CallSoon` itself no longer uses that path.)
 
 If you write a new async callback, follow the capture-under-lock-
 then-schedule pattern:

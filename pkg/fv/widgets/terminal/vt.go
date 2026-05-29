@@ -817,17 +817,28 @@ func (p *parser) feedEscape(c byte) {
 	}
 }
 
+// maxCSIParams bounds the parameter list of a single CSI sequence so a
+// malicious/buggy child emitting "CSI 1;1;1;…" can't grow the slice
+// without limit. Real terminals cap well below this (xterm at 16/32).
+const maxCSIParams = 32
+
 func (p *parser) feedCSI(c byte) {
 	if c >= '0' && c <= '9' {
-		p.csiCurr = p.csiCurr*10 + int(c-'0')
+		// Cap accumulation so a long digit run can't integer-overflow;
+		// real parameters are small and the dispatch clamps them anyway.
+		if p.csiCurr < 1<<20 {
+			p.csiCurr = p.csiCurr*10 + int(c-'0')
+		}
 		p.csiHasCur = true
 		return
 	}
 	if c == ';' {
-		if p.csiHasCur {
-			p.csiParams = append(p.csiParams, p.csiCurr)
-		} else {
-			p.csiParams = append(p.csiParams, 0)
+		if len(p.csiParams) < maxCSIParams {
+			if p.csiHasCur {
+				p.csiParams = append(p.csiParams, p.csiCurr)
+			} else {
+				p.csiParams = append(p.csiParams, 0)
+			}
 		}
 		p.csiCurr = 0
 		p.csiHasCur = false
@@ -842,10 +853,8 @@ func (p *parser) feedCSI(c byte) {
 		return
 	}
 	// final byte
-	if p.csiHasCur || len(p.csiParams) > 0 {
-		if p.csiHasCur {
-			p.csiParams = append(p.csiParams, p.csiCurr)
-		}
+	if p.csiHasCur && len(p.csiParams) < maxCSIParams {
+		p.csiParams = append(p.csiParams, p.csiCurr)
 	}
 	p.dispatchCSI(c)
 	p.state = sGround
@@ -1043,15 +1052,19 @@ func (p *parser) feedOSC(c byte) {
 		p.state = sGround
 		return
 	}
-	if c == 0x1B {
-		// ST = ESC \ — wait for the trailing '\'.
-		p.osc = append(p.osc, c)
-		return
-	}
 	if len(p.osc) > 0 && p.osc[len(p.osc)-1] == 0x1B && c == '\\' {
 		p.osc = p.osc[:len(p.osc)-1]
 		p.completeOSC()
 		p.state = sGround
+		return
+	}
+	if c == 0x1B {
+		// ST = ESC \ — wait for the trailing '\'. Subject to the same
+		// cap as ordinary bytes: a run of bare ESC bytes inside an OSC
+		// string must not grow p.osc without bound.
+		if len(p.osc) < 4096 {
+			p.osc = append(p.osc, c)
+		}
 		return
 	}
 	if len(p.osc) < 4096 {

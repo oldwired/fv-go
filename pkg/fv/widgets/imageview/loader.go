@@ -3,6 +3,7 @@ package imageview
 import (
 	"fmt"
 	"image"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,13 @@ import (
 
 func sixelCellSize() (w, h int) { return sixel.CellSize() }
 
+// maxImagePixels caps the declared dimensions an image may decode to. A
+// small, highly-compressed file (or one with a forged header) can claim
+// enormous dimensions and make the decoder allocate gigabytes before any
+// of our own bounded rendering runs — a decompression bomb. 64 megapixels
+// (~256 MB at RGBA) is far above any real terminal image.
+const maxImagePixels = 64 * 1024 * 1024
+
 // LoadFile reads an image from path and returns the decoded image.
 // PNG, JPEG, and GIF are supported via stdlib decoders. Other formats
 // (BMP, TIFF, WebP) require additional decoder registrations and are
@@ -36,6 +44,22 @@ func LoadFile(path string) (image.Image, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
+
+	// Check declared dimensions before the full decode so a forged /
+	// bomb header is rejected cheaply, then rewind for the real decode.
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 ||
+		int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+		return nil, fmt.Errorf("decode %s: image dimensions %dx%d exceed the %d-pixel limit",
+			path, cfg.Width, cfg.Height, maxImagePixels)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+
 	img, format, err := image.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)

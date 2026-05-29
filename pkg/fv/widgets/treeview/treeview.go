@@ -40,6 +40,7 @@ type TreeView struct {
 
 	Roots   []*Node
 	Focused int // index into the flattened list
+	top     int // index of the topmost rendered row (scroll offset)
 
 	flat []flatRow
 
@@ -163,10 +164,7 @@ func (t *TreeView) rebuildFlat() {
 // Draw paints visible rows.
 func (t *TreeView) Draw() {
 	w, h := t.Size.X, t.Size.Y
-	top := 0
-	if t.Focused >= h {
-		top = t.Focused - h + 1
-	}
+	top := t.topVisible()
 	for r := 0; r < h; r++ {
 		buf := screen.MakeDrawBuffer(w)
 		idx := top + r
@@ -217,16 +215,16 @@ func (t *TreeView) HandleEvent(ev *drivers.Event) {
 		t.OnSelect(t.flat[t.Focused].node)
 	}()
 	if ev.What == consts.EvMouseWheel {
-		// Scroll without changing the expand state. We move Focused
-		// by ±3, which makes the visible row range shift in Draw
-		// (top = Focused - h + 1 when Focused >= h).
+		// Scroll the viewport only — do NOT move Focused (the selection)
+		// or fire OnSelect. A wheel scroll should slide the text under a
+		// stationary selection, like every other scrollable view.
 		step := 3
 		if ev.Buttons&consts.MbScrollWheelUp != 0 {
-			t.Focused -= step
+			t.top -= step
 		} else {
-			t.Focused += step
+			t.top += step
 		}
-		t.clampFocused()
+		t.clampTop()
 		t.ClearEvent(ev)
 		return
 	}
@@ -304,17 +302,46 @@ func (t *TreeView) HandleEvent(ev *drivers.Event) {
 	default:
 		return
 	}
+	// Keyboard navigation moved the selection; scroll the viewport to
+	// keep it visible.
+	t.scrollToFocused()
 	t.ClearEvent(ev)
 }
 
-// topVisible returns the index of the topmost row currently rendered,
-// matching the math in Draw. Used to translate mouse coords into the
-// flat-list index when the tree has scrolled.
+// topVisible returns the index of the topmost rendered row (the scroll
+// offset), clamped to the current content. Draw and mouse hit-testing
+// both go through it so they agree.
 func (t *TreeView) topVisible() int {
-	if t.Focused >= t.Size.Y {
-		return t.Focused - t.Size.Y + 1
+	t.clampTop()
+	return t.top
+}
+
+// clampTop keeps the scroll offset within [0, max(0, len(flat)-h)].
+func (t *TreeView) clampTop() {
+	maxTop := len(t.flat) - t.Size.Y
+	if maxTop < 0 {
+		maxTop = 0
 	}
-	return 0
+	if t.top > maxTop {
+		t.top = maxTop
+	}
+	if t.top < 0 {
+		t.top = 0
+	}
+}
+
+// scrollToFocused adjusts the scroll offset so Focused is on screen,
+// scrolling the minimum needed. Does not change Focused.
+func (t *TreeView) scrollToFocused() {
+	if t.Size.Y <= 0 {
+		return
+	}
+	if t.Focused < t.top {
+		t.top = t.Focused
+	} else if t.Focused >= t.top+t.Size.Y {
+		t.top = t.Focused - t.Size.Y + 1
+	}
+	t.clampTop()
 }
 
 func (t *TreeView) clampFocused() {

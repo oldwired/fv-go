@@ -90,12 +90,9 @@ type Editor struct {
 	undoStack []editChange
 	undoAt    int
 
-	// Wrap configuration. Wrap = false renders identical to the
-	// non-wrapping path; Wrap = true wraps long lines at RightMargin
-	// (or, when RightMargin is 0, at the view's width). The wrap is
-	// purely visual — the underlying buffer is unchanged. Reformat
-	// (Ctrl+B) actually rewrites the paragraph at RightMargin.
-	Wrap        bool
+	// RightMargin is the column Reformat (Ctrl+B) reflows paragraphs to;
+	// 0 means "use the view width". Visual soft-wrap of long lines is
+	// not implemented — long lines clip at the right edge.
 	RightMargin int
 
 	// Bookmarks: indices 0..9 map to byte positions in Data. -1 means
@@ -417,6 +414,22 @@ func (e *Editor) lineNumber(pos int) int {
 	return bytes.Count(e.Data[:pos], []byte{'\n'})
 }
 
+// clampToRuneStart returns pos moved back to the first byte of the
+// UTF-8 rune it lands in (clamped into [0, len(Data)]), so a stale
+// byte offset can never position the caret mid-rune.
+func (e *Editor) clampToRuneStart(pos int) int {
+	if pos < 0 {
+		return 0
+	}
+	if pos > len(e.Data) {
+		return len(e.Data)
+	}
+	for pos > 0 && pos < len(e.Data) && !stdutf8.RuneStart(e.Data[pos]) {
+		pos--
+	}
+	return pos
+}
+
 // lineByIndex returns the byte range [start, end) of the line at idx.
 func (e *Editor) lineByIndex(idx int) (int, int) {
 	start := 0
@@ -578,17 +591,22 @@ func (e *Editor) Draw() {
 		selLo, selHi = e.selRange()
 	}
 
+	// LineCount is loop-invariant; computing it (and lineByIndex) per row
+	// re-scanned the whole buffer every row, making Draw O(rows×fileSize)
+	// when scrolled deep into a large file. Resolve the first visible
+	// line's byte range once, then advance to the next line each row.
+	lineCount := e.LineCount()
+	lstart, lend := e.lineByIndex(e.Top)
 	for r := 0; r < e.Size.Y; r++ {
 		buf := screen.MakeDrawBuffer(e.Size.X)
 		for x := 0; x < e.Size.X; x++ {
 			screen.DrawCell(buf, x, " ", normal)
 		}
 		lineIdx := e.Top + r
-		if lineIdx >= e.LineCount() {
+		if lineIdx >= lineCount {
 			e.WriteLine(0, r, e.Size.X, 1, buf)
 			continue
 		}
-		lstart, lend := e.lineByIndex(lineIdx)
 		var spans []ColorSpan
 		if e.Colorer != nil {
 			spans = e.Colorer.Tokenize(string(e.Data[lstart:lend]))
@@ -651,6 +669,18 @@ func (e *Editor) Draw() {
 			i += len(cluster)
 		}
 		e.WriteLine(0, r, e.Size.X, 1, buf)
+		// Advance to the next line for the following row (incremental;
+		// no rescan from byte 0). lend points at the '\n' (or EOF).
+		if lend < len(e.Data) {
+			lstart = lend + 1
+			if nl := bytes.IndexByte(e.Data[lstart:], '\n'); nl < 0 {
+				lend = len(e.Data)
+			} else {
+				lend = lstart + nl
+			}
+		} else {
+			lstart, lend = len(e.Data), len(e.Data)
+		}
 	}
 	e.drawPositionOverlay()
 	e.notifyCursorMove()
@@ -869,8 +899,12 @@ func (e *Editor) HandleEvent(ev *drivers.Event) {
 			if e.prefix == prefixSetMark {
 				e.bookmarks[idx] = e.Cursor
 			} else {
+				// Bookmarks store a raw byte offset and aren't adjusted
+				// when the buffer is edited, so a stale mark can point
+				// mid-rune after inserts/deletes. Snap to a rune
+				// boundary before moving the caret.
 				if pos := e.bookmarks[idx]; pos >= 0 && pos <= len(e.Data) {
-					e.MoveCursor(pos, false)
+					e.MoveCursor(e.clampToRuneStart(pos), false)
 				}
 			}
 		}
@@ -943,11 +977,11 @@ func (e *Editor) HandleEvent(ev *drivers.Event) {
 	case consts.KbEnd:
 		e.MoveCursor(e.lineEnd(e.Cursor), shift)
 	case consts.KbPgUp:
+		// MoveCursor → adjustScroll already shifts Top to keep the new
+		// caret on screen. The old manual `Top -= Size.Y` here scrolled
+		// a second page and could push the caret off the top; PgDn never
+		// had it. Let adjustScroll own the scroll for both.
 		e.MoveCursor(e.posAtVisible(e.lineNumber(e.Cursor)-e.Size.Y, e.columnAt(e.Cursor)), shift)
-		e.Top -= e.Size.Y
-		if e.Top < 0 {
-			e.Top = 0
-		}
 	case consts.KbPgDn:
 		e.MoveCursor(e.posAtVisible(e.lineNumber(e.Cursor)+e.Size.Y, e.columnAt(e.Cursor)), shift)
 	case consts.KbCtrlHome:
@@ -986,6 +1020,22 @@ func (e *Editor) posAtVisible(line, col int) int {
 	return e.posAtCol(ls, le, col)
 }
 
+// asciiLowerBytes returns a copy of b with ASCII A–Z folded to lower
+// case and every other byte left untouched. It is length-preserving —
+// unlike bytes.ToLower, which case-folds multi-byte runes (e.g. K
+// U+212A → k) and can change the byte length, which would misalign a
+// match offset taken in the folded buffer when applied to the original.
+func asciiLowerBytes(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return out
+}
+
 // Find searches forward for needle starting at the cursor. Returns
 // the new caret position and true on match. If caseSense is false,
 // matches are case-insensitive (ASCII case folding).
@@ -998,7 +1048,7 @@ func (e *Editor) Find(needle string, caseSense bool) bool {
 	if caseSense {
 		idx = bytes.Index(hay, []byte(needle))
 	} else {
-		idx = bytes.Index(bytes.ToLower(hay), bytes.ToLower([]byte(needle)))
+		idx = bytes.Index(asciiLowerBytes(hay), asciiLowerBytes([]byte(needle)))
 	}
 	if idx < 0 {
 		return false
@@ -1027,20 +1077,24 @@ func (e *Editor) ReplaceAll(needle, replacement string, caseSense bool) int {
 		}
 		newData = bytes.ReplaceAll(hay, []byte(needle), []byte(replacement))
 	} else {
-		// Case-insensitive: rebuild byte-by-byte to avoid corrupting
-		// non-ASCII bytes.
+		// Case-insensitive: fold once with the length-preserving ASCII
+		// fold so match offsets in the folded buffer map exactly onto
+		// the original bytes (bytes.ToLower can change length on
+		// non-ASCII runes and corrupt the slicing).
+		hayLow := asciiLowerBytes(hay)
+		needleLow := asciiLowerBytes([]byte(needle))
 		var out bytes.Buffer
-		nLow := strings.ToLower(needle)
-		hayStr := string(hay)
+		pos := 0
 		for {
-			i := strings.Index(strings.ToLower(hayStr), nLow)
-			if i < 0 {
-				out.WriteString(hayStr)
+			rel := bytes.Index(hayLow[pos:], needleLow)
+			if rel < 0 {
+				out.Write(hay[pos:])
 				break
 			}
-			out.WriteString(hayStr[:i])
+			i := pos + rel
+			out.Write(hay[pos:i])
 			out.WriteString(replacement)
-			hayStr = hayStr[i+len(needle):]
+			pos = i + len(needle)
 			count++
 		}
 		if count == 0 {

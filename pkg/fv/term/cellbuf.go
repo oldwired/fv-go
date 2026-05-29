@@ -119,24 +119,44 @@ func (b *cellBuf) dirty() []span {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var spans []span
+	// emit[x] marks cells to repaint this row. Reused across rows to
+	// avoid a per-row allocation.
+	emit := make([]bool, b.cols)
 	for y := 0; y < b.rows; y++ {
+		base := y * b.cols
+		for x := 0; x < b.cols; x++ {
+			emit[x] = b.cur[base+x] != b.prev[base+x]
+		}
+		// A double-width glyph occupies a leading cell plus a
+		// continuation cell whose Ch is "". The two halves must always
+		// repaint together: emitting only one half leaves either a
+		// torn glyph or a cursor-move-with-no-glyph that strands the
+		// stale wide char on screen. Expand the raw diff (computed
+		// above, so the expansion never cascades) to each dirty cell's
+		// wide-pair partner.
+		for x := 0; x < b.cols; x++ {
+			if b.cur[base+x] == b.prev[base+x] {
+				continue
+			}
+			if x+1 < b.cols && b.cur[base+x+1].Ch == "" {
+				emit[x+1] = true // trailing continuation half
+			}
+			if b.cur[base+x].Ch == "" && x-1 >= 0 {
+				emit[x-1] = true // this is the continuation; force the lead
+			}
+		}
 		x := 0
 		for x < b.cols {
-			i := y*b.cols + x
-			if b.cur[i] == b.prev[i] {
+			if !emit[x] {
 				x++
 				continue
 			}
 			start := x
-			cur := b.cur[i]
+			cur := b.cur[base+x]
 			text := cur.Ch
 			x++
-			for x < b.cols {
-				j := y*b.cols + x
-				if b.cur[j] == b.prev[j] {
-					break
-				}
-				next := b.cur[j]
+			for x < b.cols && emit[x] {
+				next := b.cur[base+x]
 				if next.Attr != cur.Attr || next.FGRGB != cur.FGRGB ||
 					next.BGRGB != cur.BGRGB || next.ExtAttrs != cur.ExtAttrs ||
 					next.HyperlinkURL != cur.HyperlinkURL {

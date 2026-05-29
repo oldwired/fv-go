@@ -164,7 +164,7 @@ func (g *Group) InsertBefore(v, target View) {
 		g.current++
 	}
 
-	if v.BaseView().Options&consts.OfSelectable != 0 && g.current < 0 {
+	if selectable(v) && g.current < 0 {
 		g.current = idx
 		v.BaseView().State |= consts.SfSelected | consts.SfFocused
 	}
@@ -189,6 +189,18 @@ func (g *Group) refreshActive() {
 			c.BaseView().State &^= consts.SfActive
 		}
 	}
+}
+
+// selectable reports whether v is a valid automatic-focus target: it
+// must be OfSelectable and both visible and enabled. The automatic
+// focus moves (Insert auto-focus, Delete restore, SelectNext, MakeFirst
+// raise) skip views that fail this so focus never lands on a disabled
+// or hidden control. Explicit Focus(v) deliberately does not gate on it.
+func selectable(v View) bool {
+	bv := v.BaseView()
+	return bv.Options&consts.OfSelectable != 0 &&
+		bv.GetState(consts.SfVisible) &&
+		!bv.GetState(consts.SfDisabled)
 }
 
 // Delete removes v. No-op if v isn't in this group. Also clears
@@ -219,14 +231,14 @@ func (g *Group) Delete(v View) {
 				g.current = -1
 				next := -1
 				for j := i - 1; j >= 0; j-- {
-					if g.Children[j].BaseView().Options&consts.OfSelectable != 0 {
+					if selectable(g.Children[j]) {
 						next = j
 						break
 					}
 				}
 				if next < 0 {
 					for j := i; j < len(g.Children); j++ {
-						if g.Children[j].BaseView().Options&consts.OfSelectable != 0 {
+						if selectable(g.Children[j]) {
 							next = j
 							break
 						}
@@ -267,9 +279,22 @@ func (g *Group) MakeFirst(v View) {
 			if i == len(g.Children)-1 {
 				return
 			}
+			wasCurrent := g.current
 			g.Children = append(g.Children[:i], g.Children[i+1:]...)
 			g.Children = append(g.Children, v)
-			g.current = len(g.Children) - 1
+			switch {
+			case selectable(v):
+				// Raising a focusable view also focuses it.
+				g.current = len(g.Children) - 1
+			case wasCurrent > i:
+				// A focused sibling shifted left when v was removed.
+				g.current = wasCurrent - 1
+			case wasCurrent == i:
+				// v held focus but isn't a valid target; it moved to end.
+				g.current = len(g.Children) - 1
+			default:
+				g.current = wasCurrent
+			}
 			g.refreshActive()
 			MarkDirty()
 			return
@@ -312,7 +337,7 @@ func (g *Group) SelectNext(forward bool) {
 	}
 	for off := 1; off <= n; off++ {
 		i := (g.current + off*step + n*n) % n
-		if g.Children[i].BaseView().Options&consts.OfSelectable != 0 {
+		if selectable(g.Children[i]) {
 			g.Focus(g.Children[i])
 			return
 		}
@@ -333,8 +358,13 @@ func (g *Group) SelectNext(forward bool) {
 func (g *Group) HandleEvent(ev *drivers.Event) {
 	switch {
 	case ev.What&consts.EvMouse != 0:
-		for i := len(g.Children) - 1; i >= 0; i-- {
-			c := g.Children[i]
+		// Snapshot the child slice: a child's handler may reorder or
+		// delete siblings (e.g. a Window raising itself via MakeFirst),
+		// which mutates g.Children's backing array mid-iteration. Walking
+		// a snapshot keeps the traversal stable regardless.
+		children := append([]View(nil), g.Children...)
+		for i := len(children) - 1; i >= 0; i-- {
+			c := children[i]
 			if c.BaseView().GetState(consts.SfVisible) &&
 				c.BaseView().MouseInView(ev.Where) {
 				c.HandleEvent(ev)
@@ -435,7 +465,7 @@ func (g *Group) ChangeBounds(r geom.Rect) {
 		return
 	}
 	for _, c := range g.Children {
-		c.ChangeBounds(c.BaseView().CalcBounds(delta))
+		c.ChangeBounds(c.BaseView().CalcBounds(delta, g.Size))
 	}
 }
 
@@ -477,7 +507,8 @@ func (g *Group) ExecView(v View) uint16 {
 	g.Focus(v)
 	defer g.Delete(v)
 
-	if globalQueue == nil {
+	q := globalQueue.Load()
+	if q == nil {
 		return consts.CmCancel
 	}
 	type endStater interface {
@@ -498,7 +529,7 @@ func (g *Group) ExecView(v View) uint16 {
 				return cmd
 			}
 		}
-		ev, ok := globalQueue.Get()
+		ev, ok := q.Get()
 		if !ok {
 			if waitFn != nil {
 				waitFn()

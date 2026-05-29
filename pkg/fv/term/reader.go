@@ -187,17 +187,19 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 		return Event{Kind: EventKey, Rune: rune(b0)}, 1, true
 	}
 
-	// UTF-8 multi-byte sequence.
+	// UTF-8 multi-byte sequence. If the buffer holds only a valid prefix
+	// of a rune (a sequence split across reads), wait for the remaining
+	// bytes instead of consuming the lead byte as a lone invalid byte —
+	// otherwise the continuation bytes arrive orphaned and decode as
+	// garbage. FullRune is false ONLY for a valid-but-incomplete prefix;
+	// a genuinely invalid lead byte is "full" and still gets skipped.
+	if !utf8.FullRune(r.scan) {
+		return Event{}, 0, false
+	}
 	r2, size := utf8.DecodeRune(r.scan)
 	if r2 == utf8.RuneError && size == 1 {
 		// invalid byte; skip
 		return Event{}, 1, true
-	}
-	if size == 0 {
-		return Event{}, 0, false
-	}
-	if size > len(r.scan) {
-		return Event{}, 0, false
 	}
 	return Event{Kind: EventKey, Rune: r2}, size, true
 }

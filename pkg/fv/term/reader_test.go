@@ -142,3 +142,39 @@ func TestFocusEvents(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 }
+
+// TestSplitUTF8AcrossReads regression: a multi-byte rune whose bytes
+// arrive in separate reads used to lose its lead byte — DecodeRune
+// returned (RuneError,1) on the prefix, the lead byte was skipped, and
+// the continuation bytes decoded as garbage. parseOne must now wait for
+// the full rune.
+func TestSplitUTF8AcrossReads(t *testing.T) {
+	full := []byte("世") // 0xE4 0xB8 0x96
+
+	r := newReader(bytes.NewReader(nil))
+	r.scan = append(r.scan[:0], full[0]) // only the lead byte
+	if ev, n, ok := r.parseOne(); ok {
+		t.Fatalf("partial rune consumed: ev=%+v n=%d (should wait for more)", ev, n)
+	}
+
+	r.scan = append(r.scan, full[1:]...) // remaining bytes arrive
+	ev, n, ok := r.parseOne()
+	if !ok || n != len(full) || ev.Rune != '世' {
+		t.Fatalf("after completion: ev=%+v n=%d ok=%v, want rune 世 with n=%d", ev, n, ok, len(full))
+	}
+}
+
+// TestInvalidLeadByteSkipped: a genuinely invalid byte (lone
+// continuation 0x80) is "full" per utf8.FullRune and must still be
+// skipped, not treated as an incomplete prefix.
+func TestInvalidLeadByteSkipped(t *testing.T) {
+	r := newReader(bytes.NewReader(nil))
+	r.scan = []byte{0x80, 'a'}
+	ev, n, ok := r.parseOne()
+	if !ok || n != 1 {
+		t.Fatalf("invalid byte: ev=%+v n=%d ok=%v, want skip exactly 1 byte", ev, n, ok)
+	}
+	if ev.Kind != EventNone {
+		t.Errorf("invalid byte should emit no event, got %+v", ev)
+	}
+}

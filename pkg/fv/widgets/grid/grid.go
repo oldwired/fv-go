@@ -332,18 +332,23 @@ func (g *StringGrid) SetCell(row, col int, value string) {
 		g.markDirty()
 		return
 	}
-	if row < 0 || row >= len(g.visibleRows) {
-		// Out of visible range — extend in raw space.
-		for row >= len(g.rows) {
-			g.rows = append(g.rows, make([]string, len(g.Columns)))
-		}
-		old := g.rows[row][col]
-		g.rows[row][col] = value
+	if row < 0 || col < 0 || col >= len(g.Columns) {
+		return
+	}
+	if row >= len(g.visibleRows) {
+		// Out of visible range — append a fresh physical row and write
+		// into it. Never index an existing (possibly filtered-out,
+		// possibly ragged) physical row with a visible index: that
+		// corrupts hidden data and panics on short rows.
+		g.rows = append(g.rows, make([]string, len(g.Columns)))
+		rawRow := len(g.rows) - 1
+		old := g.rows[rawRow][col]
+		g.rows[rawRow][col] = value
 		g.markDirty()
 		if old != value {
 			g.Modified = true
 			if g.OnAfterEdit != nil {
-				g.OnAfterEdit(row, col, old, value)
+				g.OnAfterEdit(rawRow, col, old, value)
 			}
 		}
 		return
@@ -1624,11 +1629,30 @@ func (g *StringGrid) swapColumns(from, to int) {
 			g.rows[r] = append(g.rows[r][:to], append([]string{v}, g.rows[r][to:]...)...)
 		}
 	}
-	// Sort tracking column shifts too.
-	if g.SortCol == from {
-		g.SortCol = to
+	// Remap every sort key through the same column shift so the active
+	// sort keeps pointing at the same logical columns; refresh the
+	// SortCol mirror from the (possibly reordered) primary key.
+	for i := range g.SortKeys {
+		g.SortKeys[i].Col = remapColumnIndex(g.SortKeys[i].Col, from, to)
 	}
+	g.syncPrimarySort()
 	g.markDirty()
+}
+
+// remapColumnIndex maps a column index through a move of the column at
+// `from` to position `to` (remove-at-from then insert-at-to).
+func remapColumnIndex(idx, from, to int) int {
+	if idx == from {
+		return to
+	}
+	pos := idx
+	if idx > from {
+		pos = idx - 1
+	}
+	if pos >= to {
+		pos++
+	}
+	return pos
 }
 
 func abs(n int) int {

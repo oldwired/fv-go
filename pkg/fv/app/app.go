@@ -372,11 +372,14 @@ func (p *Program) Run() {
 		if ev.What == consts.EvCommand && ev.Command == consts.CmQuit {
 			return
 		}
-		// CallSoon callback: invoke fn directly on the UI goroutine.
-		// Intercepted before HandleEvent so user OnCommand never sees
-		// this internal command. A panic here propagates up through
-		// Run() and hits the OnPanic recover above; no separate
-		// recover here on purpose.
+		// Run fn directly on the UI goroutine. CallSoon no longer uses
+		// this path (it has a dedicated callbacks channel drained in
+		// idle); this remains the supported way for host code to
+		// marshal a closure onto the UI goroutine via PostEvent from a
+		// background goroutine. Intercepted before HandleEvent so user
+		// OnCommand never sees this internal command. A panic here
+		// propagates up through Run() and hits the OnPanic recover
+		// above; no separate recover here on purpose.
 		if ev.What == consts.EvCommand && ev.Command == consts.CmUserCallback {
 			if fn, ok := ev.InfoPtr.(func()); ok {
 				fn()
@@ -521,6 +524,12 @@ func (p *Program) PostEvent(ev drivers.Event) {
 //     "dirty" (force emit, painting over SIXEL pixels).
 //  3. Flush()     — emits the cell diff to the terminal.
 func (p *Program) idle() {
+	// Drain async CallSoon closures here, not only in Run. Every modal
+	// loop (ExecView, MenuBox.Run, popupmenu/fuzzyfinder/stddlg) drives
+	// the UI through idle (the installed pumpFn) but never touches the
+	// callbacks channel directly, so without this a CallSoon enqueued
+	// while a dialog is open would stall until the modal exited.
+	p.drainCallbacks()
 	pumped := p.pump()
 	animDirty := anim.Pulse()
 	if !p.dirty.Load() && !pumped && !animDirty {

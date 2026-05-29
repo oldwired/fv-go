@@ -69,7 +69,8 @@ func TestDefaultGrowModeFillsParent(t *testing.T) {
 	// Simulate the parent growing by (+5, +3). Origin must stay (0,0);
 	// the size should grow to absorb the delta.
 	before := tw.GetBounds()
-	bounds := tw.CalcBounds(geom.Point{X: 5, Y: 3})
+	// Absolute grow (no GfGrowRel): the new-owner-size arg is unused.
+	bounds := tw.CalcBounds(geom.Point{X: 5, Y: 3}, geom.Point{X: 35, Y: 13})
 	if bounds.A != before.A {
 		t.Errorf("origin shifted from %v to %v on grow; want unchanged", before.A, bounds.A)
 	}

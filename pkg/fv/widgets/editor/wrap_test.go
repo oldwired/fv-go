@@ -63,29 +63,3 @@ func TestTrimTrailingWS(t *testing.T) {
 		t.Errorf("TrimTrailingWS: got %q, want %q", got, want)
 	}
 }
-
-func TestWrapPoints(t *testing.T) {
-	cases := []struct {
-		in     string
-		margin int
-		want   []int
-	}{
-		{"hello world", 5, []int{6}}, // wrap after "hello "
-		{"abc def ghi", 7, []int{8}}, // wrap after "abc def "
-		{"unbreakablelongword", 5, []int{5, 10, 15}},
-		{"short", 80, nil},
-	}
-	for _, c := range cases {
-		got := wrapPoints([]byte(c.in), c.margin)
-		if len(got) != len(c.want) {
-			t.Errorf("%q@%d: got %v, want %v", c.in, c.margin, got, c.want)
-			continue
-		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Errorf("%q@%d: got %v, want %v", c.in, c.margin, got, c.want)
-				break
-			}
-		}
-	}
-}
