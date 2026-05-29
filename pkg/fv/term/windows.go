@@ -8,9 +8,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/profile"
+	"github.com/oldwired/fv-go/pkg/fv/sixel"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"golang.org/x/sys/windows"
 )
@@ -108,9 +110,12 @@ func (b *winBackend) Init() error {
 	b.reader = newReader(b.in)
 	go b.readLoop()
 
-	// Probe cell pixel size for the SIXEL pipeline. Windows Terminal
-	// (≥ v1.22) supports CSI 16t and SIXEL graphics; legacy ConHost
-	// doesn't reply and we fall back to defaults.
+	// Cell pixel size for the SIXEL pipeline, most-reliable-first. Seed
+	// from the current console font, then send the CSI 16t query — a
+	// reply refines (or confirms) the value. Windows Terminal (≥ v1.22)
+	// supports CSI 16t and SIXEL graphics; legacy ConHost doesn't reply,
+	// so the console-font seed stands.
+	updateCellSizeFromConsoleFont(b.stdout)
 	probeCellPixelSize(b.reader, b.out)
 
 	return nil
@@ -244,6 +249,9 @@ func (b *winBackend) readLoop() {
 			cols, rows := winGetSize(b.stdout)
 			curCols, curRows := b.buf.Size()
 			if cols != curCols || rows != curRows {
+				// A resize may be a font-size change, which alters the
+				// per-cell pixel size; refresh it from the console font.
+				updateCellSizeFromConsoleFont(b.stdout)
 				b.buf.Resize(cols, rows)
 				select {
 				case b.events <- Event{Kind: EventResize, Resize: geom.Point{X: cols, Y: rows}}:
@@ -298,4 +306,39 @@ func winGetSize(h windows.Handle) (cols, rows int) {
 		return 0, 0
 	}
 	return int(info.Window.Right - info.Window.Left + 1), int(info.Window.Bottom - info.Window.Top + 1)
+}
+
+// GetCurrentConsoleFontEx is not exposed by x/sys/windows, so bind it
+// from kernel32 directly.
+var (
+	modkernel32                 = windows.NewLazySystemDLL("kernel32.dll")
+	procGetCurrentConsoleFontEx = modkernel32.NewProc("GetCurrentConsoleFontEx")
+)
+
+// consoleFontInfoEx mirrors the Win32 CONSOLE_FONT_INFOEX. dwFontSize
+// carries the character-cell size in pixels.
+type consoleFontInfoEx struct {
+	cbSize     uint32
+	nFont      uint32
+	dwFontSize windows.Coord
+	fontFamily uint32
+	fontWeight uint32
+	faceName   [32]uint16 // LF_FACESIZE
+}
+
+// updateCellSizeFromConsoleFont derives the per-cell pixel size from the
+// current console font and records it via sixel.SetCellSize. This is the
+// Windows counterpart to the Unix winsize-pixel path: a fallback for when
+// the terminal doesn't answer the CSI 16t query. Windows Terminal answers
+// CSI 16t (and we let that override this), while legacy ConHost reports a
+// usable font size here. No-op on failure, leaving the sixel default or
+// env-var override to stand.
+func updateCellSizeFromConsoleFont(h windows.Handle) {
+	var info consoleFontInfoEx
+	info.cbSize = uint32(unsafe.Sizeof(info))
+	r, _, _ := procGetCurrentConsoleFontEx.Call(uintptr(h), 0, uintptr(unsafe.Pointer(&info)))
+	if r == 0 {
+		return
+	}
+	sixel.SetCellSize(int(info.dwFontSize.X), int(info.dwFontSize.Y))
 }

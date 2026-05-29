@@ -14,6 +14,7 @@ import (
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 	"github.com/oldwired/fv-go/pkg/fv/profile"
+	"github.com/oldwired/fv-go/pkg/fv/sixel"
 	"github.com/oldwired/fv-go/pkg/fv/types"
 	"golang.org/x/sys/unix"
 	xterm "golang.org/x/term"
@@ -131,12 +132,15 @@ func (b *posixBackend) Init() error {
 	go b.readLoop()
 	go b.signalLoop()
 
-	// Wire the cell-pixel-size probe through the reader's CSI parser.
-	// Send the CSI 16t query, give the reader up to 200ms to forward a
-	// response via OnCellSize, then proceed regardless. Terminals that
-	// don't support the query (macOS Terminal, legacy ConHost, dumb
-	// tty, …) just don't reply and we fall back to the env-var
-	// override or sixel package default.
+	// Cell pixel size, most-reliable-first. The TIOCGWINSZ pixel fields
+	// (ws_xpixel/ws_ypixel) are populated synchronously by most terminals
+	// — including iTerm2, which never answers the CSI 16t query below — so
+	// try them first. Then send the CSI 16t query and give the reader up
+	// to 200ms to forward a response via OnCellSize; a reply refines the
+	// value, and terminals that don't support the query (macOS Terminal,
+	// legacy ConHost, dumb tty, …) just don't reply. Whatever neither path
+	// supplies falls back to the env-var override or sixel package default.
+	updateCellSizeFromWinsize(int(b.out.Fd()))
 	probeCellPixelSize(b.reader, b.out)
 
 	return nil
@@ -306,6 +310,9 @@ func (b *posixBackend) signalLoop() {
 			if cols < 1 || rows < 1 {
 				continue
 			}
+			// A resize may also be a font-size change, which alters the
+			// per-cell pixel size; refresh it from the new winsize.
+			updateCellSizeFromWinsize(int(b.out.Fd()))
 			b.buf.Resize(cols, rows)
 			// Defer the full-screen wipe to the next Flush on the UI
 			// goroutine. Writing "\x1b[2J" to b.out here would race the
@@ -382,4 +389,19 @@ func getSize(fd int) (cols, rows int) {
 		return 0, 0
 	}
 	return int(ws.Col), int(ws.Row)
+}
+
+// updateCellSizeFromWinsize derives the per-cell pixel size from the
+// terminal's ws_xpixel/ws_ypixel (TIOCGWINSZ) and records it via
+// sixel.SetCellSize. This is the most reliable cell-size source on Unix:
+// terminals like iTerm2 populate the pixel fields but never answer the
+// CSI 16t query the reader probes for. No-op when the terminal leaves
+// the pixel fields zero (tmux, plain ttys), leaving the CSI 16t probe or
+// the sixel package default to stand.
+func updateCellSizeFromWinsize(fd int) {
+	ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
+	if err != nil || ws.Col == 0 || ws.Row == 0 || ws.Xpixel == 0 || ws.Ypixel == 0 {
+		return
+	}
+	sixel.SetCellSize(int(ws.Xpixel)/int(ws.Col), int(ws.Ypixel)/int(ws.Row))
 }

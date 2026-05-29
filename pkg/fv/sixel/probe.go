@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 // IsSupported reports whether the host terminal renders SIXEL.
@@ -48,21 +49,29 @@ func IsSupported() bool {
 	return false
 }
 
+// cellPxW/cellPxH hold the detected cell pixel size. They're atomic
+// because the term backend may update them from its signal goroutine
+// (on a font-size-changing resize) while render code reads them.
 var (
-	cellPxW = 9
-	cellPxH = 18
+	cellPxW atomic.Int32
+	cellPxH atomic.Int32
 )
 
+func init() {
+	cellPxW.Store(9)
+	cellPxH.Store(18)
+}
+
 // SetCellSize records the terminal's actual character-cell pixel
-// dimensions. Called by the term backend at startup once the CSI 16t
-// query has returned a value. Env-var overrides (FV_CELL_W / FV_CELL_H)
-// in CellSize still take precedence.
+// dimensions. Called by the term backend when it learns the cell size
+// from TIOCGWINSZ pixel fields or a CSI 16t reply. Env-var overrides
+// (FV_CELL_W / FV_CELL_H) in CellSize still take precedence.
 func SetCellSize(w, h int) {
 	if w >= 4 {
-		cellPxW = w
+		cellPxW.Store(int32(w))
 	}
 	if h >= 4 {
-		cellPxH = h
+		cellPxH.Store(int32(h))
 	}
 }
 
@@ -75,7 +84,7 @@ func SetCellSize(w, h int) {
 //  3. Default 9×18 — a workable compromise for most fonts at common
 //     sizes when neither override nor probe gave us anything.
 func CellSize() (w, h int) {
-	w, h = cellPxW, cellPxH
+	w, h = int(cellPxW.Load()), int(cellPxH.Load())
 	if envW, errW := strconv.Atoi(os.Getenv("FV_CELL_W")); errW == nil && envW >= 4 {
 		w = envW
 	}
