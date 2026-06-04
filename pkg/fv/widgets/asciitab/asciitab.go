@@ -35,7 +35,6 @@ func New(bounds geom.Rect) *ASCIIChart {
 	}
 	c.SetSelf(c)
 	c.Options |= consts.OfSelectable | consts.OfFirstClick
-	c.State |= consts.SfCursorVis
 	return c
 }
 

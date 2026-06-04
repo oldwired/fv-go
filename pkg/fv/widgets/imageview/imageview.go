@@ -61,6 +61,15 @@ type ImageView struct {
 	cachedDCS string
 	cachedW   int
 	cachedH   int
+
+	// SIXEL emit gating. emitted is true once a DCS for the current
+	// content/layout has been written and is still on screen; lastGX/
+	// lastGY record the screen origin at that emit. PreFlush re-blits
+	// only when the image, layout, or covering state changed — without
+	// this, any unrelated flush (a 1 Hz neighbor) re-emits the static
+	// image and makes it flicker. See PreFlush.
+	emitted        bool
+	lastGX, lastGY int
 }
 
 // New constructs an ImageView at bounds with no image loaded yet.
@@ -265,13 +274,18 @@ func (iv *ImageView) drawHalfBlock() {
 //     overlapping windows survive the SIXEL repaint.
 func (iv *ImageView) PreFlush(b views.RootBackend) {
 	if iv.Image == nil || !iv.UseSixel || !sixel.IsSupported() {
+		iv.emitted = false
 		return
 	}
 	gx, gy := iv.ScreenOrigin()
 	hasSentinel := false
+	disturbed := false
 	var sentinels, covered []cellPt
 	for y := 0; y < iv.Size.Y; y++ {
 		for x := 0; x < iv.Size.X; x++ {
+			if b.WasInvalidated(gx+x, gy+y) {
+				disturbed = true
+			}
 			cell := b.GetCell(gx+x, gy+y)
 			if cell.Ch == string(types.SixelPlaceholder) {
 				sentinels = append(sentinels, cellPt{gx + x, gy + y})
@@ -282,9 +296,13 @@ func (iv *ImageView) PreFlush(b views.RootBackend) {
 		}
 	}
 	if !hasSentinel {
+		// Fully covered: our pixels are hidden and have been overpainted
+		// where the covering cells landed, so force a re-emit once we're
+		// uncovered again.
 		for _, p := range covered {
 			b.Invalidate(p.x, p.y)
 		}
+		iv.emitted = false
 		return
 	}
 
@@ -294,6 +312,7 @@ func (iv *ImageView) PreFlush(b views.RootBackend) {
 	if pxW <= 0 || pxH <= 0 {
 		return
 	}
+	contentChanged := false
 	if iv.cachedDCS == "" || iv.cachedW != pxW || iv.cachedH != pxH {
 		canvas := fitImageToCanvas(iv.Image, pxW, pxH, iv.BG)
 		if iv.Quality {
@@ -302,32 +321,49 @@ func (iv *ImageView) PreFlush(b views.RootBackend) {
 			iv.cachedDCS = sixel.EncodeRealtime(canvas, 1)
 		}
 		iv.cachedW, iv.cachedH = pxW, pxH
+		contentChanged = true
 	}
 	dcs := iv.cachedDCS
 	if dcs == "" {
 		return
 	}
 
-	// Step 1: emit BG fill over uncovered cells.
-	if fill := buildBGFill(sentinels, iv.BG); fill != "" {
-		_ = views.WriteRaw(fill)
+	// Re-emit only when something actually changed. Re-blitting an
+	// unchanged image on every flush is the flicker (and cursor darting)
+	// an unrelated live widget would otherwise trigger each time it
+	// forces a flush. disturbed catches a covering view moving/closing,
+	// a region tear-down, or a viewport resize (all leave a zero prev).
+	needEmit := !iv.emitted || contentChanged || disturbed ||
+		gx != iv.lastGX || gy != iv.lastGY
+	if needEmit {
+		// Step 1: emit BG fill over uncovered cells.
+		if fill := buildBGFill(sentinels, iv.BG); fill != "" {
+			_ = views.WriteRaw(fill)
+		}
+		// Step 2: emit SIXEL.
+		move := "\x1b[" + strconv.Itoa(gy+1) + ";" + strconv.Itoa(gx+1) + "H"
+		if err := views.WriteRaw(move + dcs); err != nil {
+			iv.emitted = false
+			return
+		}
+		// Covered cells re-emit on top of the SIXEL pixels we just laid
+		// down across the whole region.
+		for _, p := range covered {
+			b.Invalidate(p.x, p.y)
+		}
+		iv.emitted = true
+		iv.lastGX, iv.lastGY = gx, gy
 	}
-	// Step 2: emit SIXEL.
-	move := "\x1b[" + strconv.Itoa(gy+1) + ";" + strconv.Itoa(gx+1) + "H"
-	if err := views.WriteRaw(move + dcs); err != nil {
-		return
-	}
-	// Step 3: settle the cell buffer. Sentinels become an iv.BG-colored
-	// blank that's MarkClean'd against itself so the cell flush won't
-	// paint over the SIXEL we just emitted. Covered cells get
-	// Invalidated so they re-emit on top.
+	// Settle sentinels every frame (whether we emitted or skipped): the
+	// placeholder rune must never reach the terminal, and MarkClean keeps
+	// the cell flush from painting over the persisted SIXEL pixels. When
+	// skipping, covered cells are left to the normal diff — a steady
+	// cover repaints nothing, a newly-covered cell already differs from
+	// the prior blank and repaints over the persisted pixels.
 	bgCell := types.DrawCell{Ch: " ", BGRGB: nonzeroRGB(iv.BG)}
 	for _, p := range sentinels {
 		b.SetCell(p.x, p.y, bgCell)
 		b.MarkClean(p.x, p.y)
-	}
-	for _, p := range covered {
-		b.Invalidate(p.x, p.y)
 	}
 }
 

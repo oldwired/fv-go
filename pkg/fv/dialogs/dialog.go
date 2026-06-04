@@ -33,6 +33,15 @@ func InitDialog(d *Dialog, bounds geom.Rect, title string) {
 	views.InitWindow(&d.Window, bounds, title, consts.WnNoNumber)
 	d.SetSelf(d)
 	d.Options |= consts.OfCentered
+	// A modal dialog is movable and closable but not resizable or
+	// zoomable — Turbo Vision's TDialog uses wfMove+wfClose. InitWindow
+	// seeds the full window flag set (it can't tell it's building a
+	// dialog), so drop WfGrow/WfZoom here. Without this the resize handle
+	// is live but the fixed-offset children (buttons, pickers) don't
+	// reposition or clip, so shrinking the frame leaves them drawn past
+	// the border. Apps that want a resizable dialog-like window subclass
+	// views.Window directly and declare SizeLimits (see fvmux's browser).
+	d.SetFlags(consts.WfMove | consts.WfClose)
 	// Dialogs don't grow with the desktop — they keep their constructed
 	// size unless the caller explicitly resizes.
 	d.GrowMode = 0

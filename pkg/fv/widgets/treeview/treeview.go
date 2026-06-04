@@ -89,7 +89,6 @@ func New(bounds geom.Rect, roots []*Node) *TreeView {
 	}
 	t.SetSelf(t)
 	t.Options |= consts.OfSelectable | consts.OfFirstClick
-	t.State |= consts.SfCursorVis
 	// Match the other "fill the parent's interior" widgets (Editor,
 	// Terminal, MarkdownView): anchor top-left, stretch bottom-right
 	// so the tree resizes with its host window instead of staying at

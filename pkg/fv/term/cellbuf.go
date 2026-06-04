@@ -212,3 +212,19 @@ func (b *cellBuf) invalidate(x, y int) {
 	}
 	b.prev[y*b.cols+x] = types.DrawCell{}
 }
+
+// wasInvalidated reports whether prev[x,y] is the zero cell, i.e. the
+// cell was invalidate()d (or zeroed by Resize) and not yet re-committed.
+// SIXEL PreFlush uses it to detect that something disturbed its region
+// since the last commit — a covering window moved/closed, the region was
+// torn down, or the viewport resized — and a re-emit is required. Out-of-
+// range coords read as invalidated so a region that has scrolled off the
+// resized buffer re-emits rather than silently skipping.
+func (b *cellBuf) wasInvalidated(x, y int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if x < 0 || y < 0 || x >= b.cols || y >= b.rows {
+		return true
+	}
+	return b.prev[y*b.cols+x] == types.DrawCell{}
+}

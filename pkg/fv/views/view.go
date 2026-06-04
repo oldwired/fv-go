@@ -388,20 +388,32 @@ func (b *Base) WriteLine(x, y, w, h int, buf screen.DrawBuffer) {
 	// only latent today because every multi-row caller goes through
 	// WriteBuf, which slices one row at a time.
 	//
-	// We deliberately do NOT clip against b's own extent here: some
-	// widgets (Button shadow, Window drop shadow, Tooltip overflow)
-	// legitimately render outside their bounds onto the parent's
-	// fill. Z-order clipping against siblings is the Group layer's
-	// job; out-of-viewport writes are silently dropped by the
-	// backend's SetCell. In this pared-down port that's the only
-	// clipping layer.
+	// We deliberately do NOT clip against b's OWN extent: some widgets
+	// (Button shadow, Tooltip overflow) legitimately render just outside
+	// their own bounds onto the parent's fill. We DO clip against the
+	// nearest ancestor clipper (the containing window), so content can't
+	// spill onto the desktop when the window is smaller than its
+	// fixed-offset children. A button's shadow lands inside the window,
+	// so it survives; the window's own drop shadow is drawn via a direct
+	// SetCell (not this path) so it's unaffected; top-level views have no
+	// clipper and keep their cross-window overflow. Out-of-viewport
+	// writes are still dropped by the backend's SetCell.
+	clip, clipped := b.ancestorClip()
 	for row := 0; row < h; row++ {
+		sy := gy + y + row
+		if clipped && (sy < clip.A.Y || sy >= clip.B.Y) {
+			continue
+		}
 		for col := 0; col < w; col++ {
 			idx := row*w + col
 			if idx >= len(buf) {
 				break
 			}
-			rb.SetCell(gx+x+col, gy+y+row, buf[idx])
+			sx := gx + x + col
+			if clipped && (sx < clip.A.X || sx >= clip.B.X) {
+				continue
+			}
+			rb.SetCell(sx, sy, buf[idx])
 		}
 	}
 }
@@ -464,7 +476,10 @@ func getRootBackend() RootBackend {
 // graphics persist in the terminal until cell content overwrites them,
 // so views that emit SIXEL need to suppress emission of their sentinel
 // cells (MarkClean) AND force re-emit of cells covering them
-// (Invalidate). See PreFlusher below.
+// (Invalidate). WasInvalidated lets a SIXEL view detect that its region
+// was disturbed since the last frame (a covering view moved/closed, the
+// region was torn down, or the viewport resized) so it can re-emit only
+// when needed instead of on every flush. See PreFlusher below.
 type RootBackend interface {
 	SetCell(x, y int, c types.DrawCell)
 	GetCell(x, y int) types.DrawCell
@@ -472,6 +487,7 @@ type RootBackend interface {
 	WriteRaw(s string) error
 	MarkClean(x, y int)
 	Invalidate(x, y int)
+	WasInvalidated(x, y int) bool
 }
 
 // PreFlusher is implemented by views that need to inspect or mutate
@@ -482,6 +498,29 @@ type RootBackend interface {
 // overwritten (covered).
 type PreFlusher interface {
 	PreFlush(b RootBackend)
+}
+
+// clipper is implemented by container views that bound where their
+// descendants may draw. WriteLine drops any cell that falls outside the
+// nearest ancestor clipper's screen rect, so a child can't paint onto
+// the desktop when its window is dragged smaller than its fixed-offset
+// content. Window is the only clipper today; Tabs / Splitter / Scroller
+// can adopt ClipRect later. The rect is half-open screen coordinates.
+type clipper interface {
+	ClipRect() geom.Rect
+}
+
+// ancestorClip walks up the owner chain to the nearest clipper and
+// returns its screen rect. ok is false for top-level views (menus,
+// status line, tooltips, the desktop) — those clip only to the viewport,
+// preserving their intended cross-window overflow.
+func (b *Base) ancestorClip() (geom.Rect, bool) {
+	for o := b.Owner; o != nil; o = o.Owner {
+		if c, ok := o.Self().(clipper); ok {
+			return c.ClipRect(), true
+		}
+	}
+	return geom.Rect{}, false
 }
 
 // SetRootBackend wires the screen target. Called by app.Application.Init.

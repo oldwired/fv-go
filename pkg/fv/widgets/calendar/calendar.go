@@ -45,7 +45,6 @@ func New(bounds geom.Rect) *Calendar {
 	}
 	c.SetSelf(c)
 	c.Options |= consts.OfSelectable | consts.OfFirstClick
-	c.State |= consts.SfCursorVis
 	return c
 }
 

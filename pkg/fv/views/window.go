@@ -359,6 +359,25 @@ func (w *Window) SetTitle(s string) {
 // Flags returns the window flags (Wf*).
 func (w *Window) Flags() byte { return w.flags }
 
+// SetFlags replaces the window flags (Wf*). Used by Dialog to drop the
+// grow/zoom bits a plain modal dialog shouldn't have, and available to
+// callers that want to make a window non-resizable, non-closable, etc.
+// Takes effect on the next Frame draw and the next title-bar hit test.
+func (w *Window) SetFlags(f byte) { w.flags = f }
+
+// ClipRect implements the views clip interface: every descendant draw is
+// confined to the window's screen rectangle, so content can't spill onto
+// the desktop when the window is dragged smaller than its children. It
+// returns the OUTER bounds — the Frame is a child and must stay free to
+// paint the border row/column.
+func (w *Window) ClipRect() geom.Rect {
+	sx, sy := w.ScreenOrigin()
+	return geom.Rect{
+		A: geom.Point{X: sx, Y: sy},
+		B: geom.Point{X: sx + w.Size.X, Y: sy + w.Size.Y},
+	}
+}
+
 // Number returns the window number (0 means none).
 func (w *Window) Number() int { return w.number }
 
@@ -555,6 +574,18 @@ func clampResize(w *Window, reqW, reqH int) (int, int) {
 	if self := w.Self(); self != nil {
 		minSz, _ = self.SizeLimits()
 	}
+	// Never shrink past fixed-offset content. Those children can't shrink
+	// with the frame, so without this they'd be clipped away (WriteLine
+	// now confines them to the window — keeping them visible is the other
+	// half of the fix). A declared SizeLimits larger than the content
+	// floor still wins.
+	cw, ch := w.contentFloor()
+	if minSz.X < cw {
+		minSz.X = cw
+	}
+	if minSz.Y < ch {
+		minSz.Y = ch
+	}
 	if reqW < minSz.X {
 		reqW = minSz.X
 	}
@@ -568,6 +599,43 @@ func clampResize(w *Window, reqW, reqH int) (int, int) {
 		reqH = 4
 	}
 	return reqW, reqH
+}
+
+// contentFloor returns the smallest (w, h) that keeps every child which
+// does NOT shrink with the window fully inside the frame. A child whose
+// far edge tracks the window (GfGrowHiX / GfGrowHiY) shrinks along with
+// it and never needs a floor; a fixed-offset child (a button, a label, a
+// picker) would be clipped if the window shrank past it, so its extent
+// pins the minimum. The Frame is skipped — it's sized to the window and
+// would otherwise pin the floor at the current size. Returns 0 on an axis
+// no fixed child constrains, leaving the hard floor to apply.
+func (w *Window) contentFloor() (int, int) {
+	var cw, ch int
+	for _, c := range w.Children {
+		if c == w.Frame {
+			continue
+		}
+		bv := c.BaseView()
+		if bv.GrowMode&consts.GfGrowHiX == 0 {
+			if right := bv.Origin.X + bv.Size.X; right > cw {
+				cw = right
+			}
+		}
+		if bv.GrowMode&consts.GfGrowHiY == 0 {
+			if bottom := bv.Origin.Y + bv.Size.Y; bottom > ch {
+				ch = bottom
+			}
+		}
+	}
+	// Reserve the far frame border; the near border is already baked into
+	// the children's origins (content sits inside the frame at >= 1).
+	if cw > 0 {
+		cw++
+	}
+	if ch > 0 {
+		ch++
+	}
+	return cw, ch
 }
 
 // resizeLoop runs while the user holds the mouse on the bottom-right

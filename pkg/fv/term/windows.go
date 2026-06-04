@@ -179,6 +179,8 @@ func (b *winBackend) MarkClean(x, y int) { b.buf.markClean(x, y) }
 
 func (b *winBackend) Invalidate(x, y int) { b.buf.invalidate(x, y) }
 
+func (b *winBackend) WasInvalidated(x, y int) bool { return b.buf.wasInvalidated(x, y) }
+
 func (b *winBackend) Flush() error {
 	spans := b.buf.dirty()
 	if len(spans) == 0 && b.cursorOn {

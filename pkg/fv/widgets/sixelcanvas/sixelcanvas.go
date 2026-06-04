@@ -13,6 +13,7 @@
 package sixelcanvas
 
 import (
+	"hash/fnv"
 	"image"
 	"image/color"
 	"strconv"
@@ -55,6 +56,18 @@ type SixelCanvasView struct {
 	// emission doesn't cover (cell-size mismatch, or padding when the
 	// integer-scale-up undershoots the cell rect). Default 0x000000.
 	BG uint32
+
+	// SIXEL emit gating + cache. cachedDCS holds the last encode keyed by
+	// (cachedHash of the pixel buffer, cachedScale); it lets a static
+	// canvas skip both re-encoding and re-emitting on flushes triggered
+	// by unrelated widgets. emitted/lastGX/lastGY mirror ImageView — they
+	// gate the WriteRaw so an unchanged canvas next to a live neighbor
+	// stops flickering. See PreFlush.
+	cachedDCS      string
+	cachedHash     uint64
+	cachedScale    int
+	emitted        bool
+	lastGX, lastGY int
 }
 
 // New constructs a SixelCanvasView with a pixelW × pixelH backing
@@ -113,6 +126,7 @@ func (c *SixelCanvasView) Resize(pixelW, pixelH int) {
 	c.PixelW = pixelW
 	c.PixelH = pixelH
 	c.pixels = image.NewRGBA(image.Rect(0, 0, pixelW, pixelH))
+	c.cachedDCS = ""
 }
 
 // --- drawing primitives ---------------------------------------------
@@ -262,13 +276,18 @@ func (c *SixelCanvasView) drawHalfBlock() {
 // iv.BG for the under-the-SIXEL background fill.
 func (c *SixelCanvasView) PreFlush(b views.RootBackend) {
 	if !c.UseSixel || !sixel.IsSupported() {
+		c.emitted = false
 		return
 	}
 	gx, gy := c.ScreenOrigin()
 	hasSentinel := false
+	disturbed := false
 	var sentinels, covered []cellPt
 	for y := 0; y < c.Size.Y; y++ {
 		for x := 0; x < c.Size.X; x++ {
+			if b.WasInvalidated(gx+x, gy+y) {
+				disturbed = true
+			}
 			cell := b.GetCell(gx+x, gy+y)
 			if cell.Ch == string(types.SixelPlaceholder) {
 				sentinels = append(sentinels, cellPt{gx + x, gy + y})
@@ -282,6 +301,7 @@ func (c *SixelCanvasView) PreFlush(b views.RootBackend) {
 		for _, p := range covered {
 			b.Invalidate(p.x, p.y)
 		}
+		c.emitted = false
 		return
 	}
 
@@ -298,28 +318,50 @@ func (c *SixelCanvasView) PreFlush(b views.RootBackend) {
 	if scale < 1 {
 		scale = 1
 	}
-	dcs := sixel.EncodeRealtime(c.pixels, scale)
+	// Re-encode only when the pixel buffer or scale changed. A static
+	// canvas (or one whose OnTick didn't touch the pixels) keeps the
+	// cached DCS, so an unrelated flush costs neither an encode nor a
+	// re-blit.
+	hash := pixelsHash(c.pixels)
+	contentChanged := false
+	if c.cachedDCS == "" || c.cachedHash != hash || c.cachedScale != scale {
+		c.cachedDCS = sixel.EncodeRealtime(c.pixels, scale)
+		c.cachedHash = hash
+		c.cachedScale = scale
+		contentChanged = true
+	}
+	dcs := c.cachedDCS
 	if dcs == "" {
 		return
 	}
 
-	// 1) BG fill over uncovered cells.
-	if fill := buildBGFill(sentinels, c.BG); fill != "" {
-		_ = views.WriteRaw(fill)
+	// Re-emit only when something changed — see ImageView.PreFlush for
+	// the full rationale (this is the same shape). disturbed catches a
+	// covering view moving/closing, a tear-down, or a viewport resize.
+	needEmit := !c.emitted || contentChanged || disturbed ||
+		gx != c.lastGX || gy != c.lastGY
+	if needEmit {
+		// 1) BG fill over uncovered cells.
+		if fill := buildBGFill(sentinels, c.BG); fill != "" {
+			_ = views.WriteRaw(fill)
+		}
+		// 2) SIXEL.
+		move := "\x1b[" + strconv.Itoa(gy+1) + ";" + strconv.Itoa(gx+1) + "H"
+		if err := views.WriteRaw(move + dcs); err != nil {
+			c.emitted = false
+			return
+		}
+		for _, p := range covered {
+			b.Invalidate(p.x, p.y)
+		}
+		c.emitted = true
+		c.lastGX, c.lastGY = gx, gy
 	}
-	// 2) SIXEL.
-	move := "\x1b[" + strconv.Itoa(gy+1) + ";" + strconv.Itoa(gx+1) + "H"
-	if err := views.WriteRaw(move + dcs); err != nil {
-		return
-	}
-	// 3) Settle the cellbuf — see ImageView.PreFlush.
+	// 3) Settle sentinels every frame — see ImageView.PreFlush.
 	bgCell := types.DrawCell{Ch: " ", BGRGB: nonzeroRGB(c.BG)}
 	for _, p := range sentinels {
 		b.SetCell(p.x, p.y, bgCell)
 		b.MarkClean(p.x, p.y)
-	}
-	for _, p := range covered {
-		b.Invalidate(p.x, p.y)
 	}
 }
 
@@ -369,6 +411,17 @@ func buildBGFill(cells []cellPt, bg uint32) string {
 }
 
 // --- helpers --------------------------------------------------------
+
+// pixelsHash is a cheap content fingerprint of the canvas buffer. It
+// gates the SIXEL re-encode/re-emit: equal hash ⇒ the pixels are
+// unchanged since the last frame, so the cached DCS still applies. The
+// buffer has no stride padding (image.NewRGBA at origin), so Pix is the
+// exact content.
+func pixelsHash(img *image.RGBA) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write(img.Pix)
+	return h.Sum64()
+}
 
 func rgbaFrom(rgb uint32) color.RGBA {
 	return color.RGBA{

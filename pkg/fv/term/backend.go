@@ -153,6 +153,12 @@ type Backend interface {
 	// view tear-down to clear residual SIXEL pixels at deleted regions.
 	Invalidate(x, y int)
 
+	// WasInvalidated reports whether cell (x,y)'s prev is the zero cell —
+	// i.e. it was Invalidate()d (or zeroed by a resize) and not yet
+	// re-committed. SIXEL pre-flush uses it to decide whether its region
+	// was disturbed since the last frame and must be re-emitted.
+	WasInvalidated(x, y int) bool
+
 	// ShowCursor toggles cursor visibility independent of position.
 	ShowCursor(visible bool)
 

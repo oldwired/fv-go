@@ -77,12 +77,13 @@ func (h *Headless) WriteRaw(s string) error {
 	return nil
 }
 
-func (h *Headless) MarkClean(x, y int)   { h.cells.markClean(x, y) }
-func (h *Headless) Invalidate(x, y int)  { h.cells.invalidate(x, y) }
-func (h *Headless) ShowCursor(v bool)    { h.visible = v }
-func (h *Headless) Events() <-chan Event { return h.events }
-func (h *Headless) Suspend() error       { return nil }
-func (h *Headless) Resume() error        { return nil }
+func (h *Headless) MarkClean(x, y int)           { h.cells.markClean(x, y) }
+func (h *Headless) Invalidate(x, y int)          { h.cells.invalidate(x, y) }
+func (h *Headless) WasInvalidated(x, y int) bool { return h.cells.wasInvalidated(x, y) }
+func (h *Headless) ShowCursor(v bool)            { h.visible = v }
+func (h *Headless) Events() <-chan Event         { return h.events }
+func (h *Headless) Suspend() error               { return nil }
+func (h *Headless) Resume() error                { return nil }
 
 // PushEvent enqueues an input event. Blocks if the buffered channel
 // is full — tests should keep volume modest (the buffer is 64 deep).

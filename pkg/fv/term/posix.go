@@ -225,6 +225,8 @@ func (b *posixBackend) MarkClean(x, y int) { b.buf.markClean(x, y) }
 
 func (b *posixBackend) Invalidate(x, y int) { b.buf.invalidate(x, y) }
 
+func (b *posixBackend) WasInvalidated(x, y int) bool { return b.buf.wasInvalidated(x, y) }
+
 func (b *posixBackend) Flush() error {
 	if b.clearPending.Swap(false) {
 		// SIGWINCH requested a full-screen wipe. Emit it here on the UI

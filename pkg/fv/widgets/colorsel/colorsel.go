@@ -38,7 +38,6 @@ func New(bounds geom.Rect, initial byte) *ColorSelector {
 	c := &ColorSelector{Base: views.NewBase(bounds), Selected: initial}
 	c.SetSelf(c)
 	c.Options |= consts.OfSelectable | consts.OfFirstClick
-	c.State |= consts.SfCursorVis
 	return c
 }
 
