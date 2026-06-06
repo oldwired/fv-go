@@ -69,6 +69,7 @@ const (
 	cmAppSaveDesktop
 	cmAppLoadDesktop
 	cmAppGameOfLife
+	cmAppEditorLab
 )
 
 // dispatchExtension routes the new menu items. The event is needed so
@@ -131,6 +132,8 @@ func dispatchExtension(a *app.Application, cmd uint16, ev *drivers.Event) bool {
 		loadDesktopFile(a)
 	case cmAppGameOfLife:
 		showGameOfLife(a)
+	case cmAppEditorLab:
+		showEditorLab(a)
 	default:
 		return false
 	}

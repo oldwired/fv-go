@@ -125,6 +125,7 @@ type Palette struct {
 	// Tree view
 	TreeNormal  uint16 // unfocused row text
 	TreeFocused uint16 // currently-highlighted row
+	TreeBranch  uint16 // ▾/▸ expand markers and branch glyphs
 	TreeIcon    uint16 // expand/collapse marker
 
 	// Combo box
@@ -138,6 +139,10 @@ type Palette struct {
 	// Tooltip
 	TooltipNormal uint16 // tooltip body
 	TooltipShadow uint16 // drop-shadow under the tooltip
+
+	// HoverPopup (multi-line non-modal popup)
+	HoverPopupNormal uint16 // popup body text
+	HoverPopupFrame  uint16 // popup border
 
 	// Pop-up menu
 	PopupMenuNormal      uint16 // unselected item row
@@ -181,15 +186,18 @@ type Palette struct {
 	GridFrame      uint16 // outer border
 
 	// Editor / syntax / gutter
-	EditorText       uint16 // body text
-	EditorSelected   uint16 // selected range
-	EditorKeyword    uint16 // language keyword token (if, for, …)
-	EditorString     uint16 // string-literal token
-	EditorComment    uint16 // comment token
-	EditorNumber     uint16 // numeric-literal token
-	EditorLineNo     uint16 // line-number gutter column
-	EditorBookmark   uint16 // ★ gutter marker
-	EditorBreakpoint uint16 // ● gutter marker
+	EditorText        uint16 // body text
+	EditorSelected    uint16 // selected range
+	EditorKeyword     uint16 // language keyword token (if, for, …)
+	EditorString      uint16 // string-literal token
+	EditorComment     uint16 // comment token
+	EditorNumber      uint16 // numeric-literal token
+	EditorLineNo      uint16 // line-number gutter column
+	EditorBookmark    uint16 // ★ gutter marker
+	EditorBreakpoint  uint16 // ● gutter marker
+	EditorCaretExtra  uint16 // secondary carets in multi-cursor mode
+	EditorFoldSummary uint16 // "⋯ N lines" suffix on a collapsed fold header
+	EditorFoldMarker  uint16 // ▸/▾ fold affordance in the gutter
 
 	// Markdown rendering (also used by SyntaxStyles factories)
 	MarkdownHeading uint16 // # H1 / ## H2 / … heading lines
@@ -367,6 +375,7 @@ var Default = &Palette{
 
 	TreeNormal:  types.MakeAttr(0x07, 0x01),
 	TreeFocused: types.MakeAttr(0x0F, 0x02),
+	TreeBranch:  types.MakeAttr(0x0B, 0x01),
 	TreeIcon:    types.MakeAttr(0x0E, 0x01),
 
 	ComboButton: types.MakeAttr(0x0E, 0x06),
@@ -377,6 +386,9 @@ var Default = &Palette{
 
 	TooltipNormal: types.MakeAttr(0x00, 0x0E),
 	TooltipShadow: types.MakeAttr(0x08, 0x00),
+
+	HoverPopupNormal: types.MakeAttr(0x00, 0x0E),
+	HoverPopupFrame:  types.MakeAttr(0x08, 0x0E),
 
 	PopupMenuNormal:      types.MakeAttr(0x00, 0x07),
 	PopupMenuSelected:    types.MakeAttr(0x0F, 0x02),
@@ -413,15 +425,18 @@ var Default = &Palette{
 	GridPinned:     types.MakeAttr(0x0F, 0x05),
 	GridFrame:      types.MakeAttr(0x00, 0x07),
 
-	EditorText:       types.MakeAttr(0x07, 0x01),
-	EditorSelected:   types.MakeAttr(0x0F, 0x02),
-	EditorKeyword:    types.MakeAttr(0x0E, 0x01),
-	EditorString:     types.MakeAttr(0x0A, 0x01),
-	EditorComment:    types.MakeAttr(0x08, 0x01),
-	EditorNumber:     types.MakeAttr(0x0B, 0x01),
-	EditorLineNo:     types.MakeAttr(0x08, 0x00),
-	EditorBookmark:   types.MakeAttr(0x0E, 0x00),
-	EditorBreakpoint: types.MakeAttr(0x0C, 0x00),
+	EditorText:        types.MakeAttr(0x07, 0x01),
+	EditorSelected:    types.MakeAttr(0x0F, 0x02),
+	EditorKeyword:     types.MakeAttr(0x0E, 0x01),
+	EditorString:      types.MakeAttr(0x0A, 0x01),
+	EditorComment:     types.MakeAttr(0x08, 0x01),
+	EditorNumber:      types.MakeAttr(0x0B, 0x01),
+	EditorLineNo:      types.MakeAttr(0x08, 0x00),
+	EditorBookmark:    types.MakeAttr(0x0E, 0x00),
+	EditorBreakpoint:  types.MakeAttr(0x0C, 0x00),
+	EditorCaretExtra:  types.MakeAttr(0x01, 0x07),
+	EditorFoldSummary: types.MakeAttr(0x08, 0x01),
+	EditorFoldMarker:  types.MakeAttr(0x0E, 0x00),
 
 	MarkdownHeading: types.MakeAttr(0x0E, 0x01),
 	MarkdownEmph:    types.MakeAttr(0x0F, 0x01),

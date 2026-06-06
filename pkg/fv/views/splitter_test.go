@@ -66,6 +66,34 @@ func TestSplitGroupDegenerateSizeNoNegativePanels(t *testing.T) {
 	}
 }
 
+// SplitGroup must stay anchored to its top-left corner when the host
+// resizes (window zoom / terminal resize) and stretch to fill — a
+// GfGrowAll mode would slide the whole split area toward the
+// bottom-right instead, detaching the top pane from the window top.
+func TestSplitGroupAnchorsOnHostResize(t *testing.T) {
+	host := NewGroup(geom.NewRect(0, 0, 60, 20))
+	sg := NewSplitGroup(geom.NewRect(10, 1, 60, 20), SplitHorizontal, 9)
+	p1, p2 := newDummy(geom.Rect{}), newDummy(geom.Rect{})
+	sg.SetPanels(p1, p2)
+	host.Insert(sg)
+
+	host.ChangeBounds(geom.NewRect(0, 0, 80, 30))
+
+	if sg.Origin != (geom.Point{X: 10, Y: 1}) {
+		t.Errorf("split origin = %v, want (10,1) — must not slide on resize", sg.Origin)
+	}
+	if sg.Size != (geom.Point{X: 70, Y: 29}) {
+		t.Errorf("split size = %v, want (70,29) — must stretch with host", sg.Size)
+	}
+	if p1.Origin.Y != 0 {
+		t.Errorf("top panel origin.Y = %d, want 0 (anchored to split top)", p1.Origin.Y)
+	}
+	if p2.Origin.Y+p2.Size.Y != sg.Size.Y {
+		t.Errorf("bottom panel ends at %d, want %d (fills to split bottom)",
+			p2.Origin.Y+p2.Size.Y, sg.Size.Y)
+	}
+}
+
 // dummy is a minimal View for use in splitter tests.
 type dummy struct{ Base }
 

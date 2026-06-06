@@ -32,7 +32,14 @@ What's NOT done: Pascal's `Outline.pas` (superseded by
 `widgets/treeview`), `Statuses.pas` (covered by `widgets/spinner` +
 `widgets/taskprogress`), and the SIXEL "quality" path's BMP/TIFF/WebP
 loaders predate `golang.org/x/image` so we just register those
-decoders. Beyond that, the port matches the Pascal feature surface.
+decoders. Beyond that, the port matches the Pascal feature surface —
+plus IDE-grade editor extensions with no Pascal counterpart: a
+Buffer/view split with shared-buffer split panes, `ReplaceRange` +
+LSP position helpers, multi-cursor/column selection, code folding,
+LSP snippet tab stops, transient decorations, a multi-line
+`hoverpopup`, and TreeView context menus (see
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), "Editor: Buffer /
+view split"; the fvdemo "Editor Lab" exercises all of it).
 
 ## Agent guidance (non-code, non-architecture)
 

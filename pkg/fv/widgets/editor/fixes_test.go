@@ -43,8 +43,8 @@ func TestReplaceAllCaseInsensitiveUnicodeAlignment(t *testing.T) {
 		t.Fatalf("ReplaceAll count = %d, want 1", n)
 	}
 	want := kelvin + "q" + kelvin
-	if string(e.Data) != want {
-		t.Errorf("ReplaceAll = %q, want %q (mis-sliced on multibyte rune)", string(e.Data), want)
+	if e.Text() != want {
+		t.Errorf("ReplaceAll = %q, want %q (mis-sliced on multibyte rune)", e.Text(), want)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestPageUpKeepsCaretVisible(t *testing.T) {
 	e := newTestEditor() // 40x10 viewport
 	var sb strings.Builder
 	for i := 0; i < 50; i++ {
-		fmt.Fprintf(&sb, "line%02d\n", i)
+		_, _ = fmt.Fprintf(&sb, "line%02d\n", i) // strings.Builder never errors
 	}
 	e.SetText(sb.String())
 
@@ -82,7 +82,7 @@ func TestDrawDeepScrollRendersCorrectLines(t *testing.T) {
 	e.State |= consts.SfExposed | consts.SfVisible
 	var sb strings.Builder
 	for i := 0; i < 100; i++ {
-		fmt.Fprintf(&sb, "L%d\n", i)
+		_, _ = fmt.Fprintf(&sb, "L%d\n", i) // strings.Builder never errors
 	}
 	e.SetText(sb.String())
 	e.Top = 90

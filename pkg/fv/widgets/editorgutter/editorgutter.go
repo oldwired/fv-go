@@ -73,8 +73,10 @@ func (g *EditorGutter) Draw() {
 		for x := 0; x < g.Size.X; x++ {
 			screen.DrawCell(buf, x, " ", g.Color)
 		}
-		lineNum := g.Editor.Top + r
-		if lineNum < g.Editor.LineCount() {
+		// LineAtRow resolves the buffer line shown on this row through
+		// the editor's fold mapping (identity when nothing is folded).
+		lineNum := g.Editor.LineAtRow(r)
+		if lineNum >= 0 {
 			x := 0
 			for _, p := range g.Providers {
 				text, attr := p.CellAt(lineNum)
@@ -101,8 +103,8 @@ func (g *EditorGutter) HandleEvent(ev *drivers.Event) {
 	if local.Y < 0 || local.Y >= g.Size.Y {
 		return
 	}
-	lineNum := g.Editor.Top + local.Y
-	if lineNum >= g.Editor.LineCount() {
+	lineNum := g.Editor.LineAtRow(local.Y)
+	if lineNum < 0 {
 		return
 	}
 	g.OnClick(lineNum)
@@ -198,6 +200,35 @@ func (b *Breakpoints) CellAt(lineNum int) (string, uint16) {
 		return "● ", b.Attr
 	}
 	return "  ", b.Attr
+}
+
+// Folds is a Provider that paints the fold affordance: '▸' on a
+// collapsed region header, '▾' on an expanded one. Wire toggling
+// through the gutter's OnClick: a host checks Ed.FoldMarkerAt(line)
+// and calls Ed.ToggleFold(line).
+type Folds struct {
+	Ed   *editor.Editor
+	Attr uint16
+}
+
+// NewFolds builds a fold-marker provider for ed, colored with
+// theme.EditorFoldMarker.
+func NewFolds(ed *editor.Editor) *Folds {
+	return &Folds{Ed: ed, Attr: theme.Get().EditorFoldMarker}
+}
+
+// Width reports the two-cell gutter footprint for the marker glyph.
+func (f *Folds) Width() int { return 2 }
+
+// CellAt renders the fold marker for region headers and spaces
+// elsewhere.
+func (f *Folds) CellAt(lineNum int) (string, uint16) {
+	if f.Ed != nil {
+		if m := f.Ed.FoldMarkerAt(lineNum); m != 0 {
+			return string(m) + " ", f.Attr
+		}
+	}
+	return "  ", f.Attr
 }
 
 // Diff is a Provider that paints +/- markers for inserted / removed

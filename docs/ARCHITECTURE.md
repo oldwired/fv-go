@@ -126,6 +126,32 @@ and `Flush`. They emit a BG fill + SIXEL, then mark their sentinels
 clean and any covering cells dirty. `Group.Delete` invalidates the
 deleted view's rect so closing a SIXEL view clears its pixels.
 
+## Editor: Buffer / view split
+
+`widgets/editor` separates the text **model** from the **view**:
+
+- `editor.Buffer` owns the bytes, the undo/redo stack (with
+  `BeginGroup`/`EndGroup` transactions), `Modified`/`Filename`/encoding,
+  and the monotonic change version. Every mutation funnels through one
+  internal `splice`, which records undo and notifies listeners.
+- `editor.Editor` is a view over a Buffer: caret, selection, secondary
+  carets, scroll, folds, snippet session, decorations, colorer. `New`
+  creates a private Buffer; `NewShared(…, buf)` attaches a second pane
+  to an existing one (split panes: shared text + undo, independent
+  view state). Call `Detach` when discarding a shared pane.
+
+**Splice-listener contract.** After each splice the Buffer notifies
+every attached editor with a `Splice{Start, OldLen, NewLen, StartLine,
+LinesDelta, Origin}`. Listeners remap their byte-anchored state
+(carets, bookmarks, fold spans, snippet stops, decorations) through
+the `adjustPos`/`adjustSpan` helpers in `span.go`; `Origin` identifies
+the acting editor, which manages its own carets and skips that part of
+the remap. Version bumps (`bufferChanged`) fire once per user-visible
+operation — a grouped multi-caret edit or a group undo is one
+`OnChange`, which is what LSP `didChange` consumers want. Host-driven
+edits go through `ReplaceRange` (one undo entry, carets remap) rather
+than `SetText` (wipes undo, resets all panes).
+
 ## Translation notes (Delphi → Go)
 
 - **No inheritance.** Embedding + structural interface satisfaction.

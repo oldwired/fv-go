@@ -93,8 +93,8 @@ func TestRestoreViewStateClampsToShorterBuffer(t *testing.T) {
 	v := ViewState{Cursor: 1000, SelAnchor: 500, Top: 1000, LeftCol: 100}
 	e.SetText("short")
 	e.RestoreViewState(v)
-	if e.Cursor > len(e.Data) {
-		t.Errorf("Cursor not clamped: got %d, len=%d", e.Cursor, len(e.Data))
+	if e.Cursor > e.Len() {
+		t.Errorf("Cursor not clamped: got %d, len=%d", e.Cursor, e.Len())
 	}
 	if e.Top > e.LineCount() {
 		t.Errorf("Top not clamped: got %d, LineCount=%d", e.Top, e.LineCount())
@@ -115,8 +115,8 @@ func TestAppendDoesNotMoveCursorWhenNotAtTail(t *testing.T) {
 	if e.Cursor != startCursor {
 		t.Errorf("Append moved cursor from %d to %d when not at tail", startCursor, e.Cursor)
 	}
-	if string(e.Data) != "hello\nworld\nappended" {
-		t.Errorf("buffer = %q, want %q", string(e.Data), "hello\nworld\nappended")
+	if e.Text() != "hello\nworld\nappended" {
+		t.Errorf("buffer = %q, want %q", e.Text(), "hello\nworld\nappended")
 	}
 }
 
@@ -125,7 +125,7 @@ func TestAppendDoesNotMoveCursorWhenNotAtTail(t *testing.T) {
 func TestAppendFollowsTailWhenAtEnd(t *testing.T) {
 	e := newTestEditor()
 	e.SetText("a")
-	e.MoveCursor(len(e.Data), false)
+	e.MoveCursor(e.Len(), false)
 	e.Append("bc")
 	if e.Cursor != 3 {
 		t.Errorf("Append at tail: Cursor = %d, want 3", e.Cursor)
@@ -139,12 +139,12 @@ func TestAppendRoutesUndo(t *testing.T) {
 	e := newTestEditor()
 	e.SetText("base")
 	e.Append("+more")
-	if string(e.Data) != "base+more" {
-		t.Fatalf("Append did not concatenate: %q", string(e.Data))
+	if e.Text() != "base+more" {
+		t.Fatalf("Append did not concatenate: %q", e.Text())
 	}
 	e.Undo()
-	if string(e.Data) != "base" {
-		t.Errorf("Undo after Append: %q, want %q", string(e.Data), "base")
+	if e.Text() != "base" {
+		t.Errorf("Undo after Append: %q, want %q", e.Text(), "base")
 	}
 }
 
@@ -176,16 +176,16 @@ func TestAppendBypassesReadOnly(t *testing.T) {
 	e.ReadOnly = true
 
 	e.Append("+streamed")
-	if string(e.Data) != "base+streamed" {
+	if e.Text() != "base+streamed" {
 		t.Errorf("Append should bypass ReadOnly (matching SetText): got %q, want %q",
-			string(e.Data), "base+streamed")
+			e.Text(), "base+streamed")
 	}
 
 	// Insert (user-input path) should still be blocked.
-	prev := string(e.Data)
+	prev := e.Text()
 	e.Insert("typed")
-	if string(e.Data) != prev {
-		t.Errorf("Insert under ReadOnly mutated buffer: got %q, want %q", string(e.Data), prev)
+	if e.Text() != prev {
+		t.Errorf("Insert under ReadOnly mutated buffer: got %q, want %q", e.Text(), prev)
 	}
 }
 

@@ -5,12 +5,18 @@ import (
 )
 
 // editChange is one undoable mutation: at byte position start, the
-// range Data[start:start+len(oldBytes)] used to contain oldBytes; it
+// range data[start:start+len(oldBytes)] used to contain oldBytes; it
 // was replaced with newBytes. Either side may be empty (pure
 // insertion has oldBytes == nil; pure deletion has newBytes == nil).
 //
-// We snapshot cursor positions before and after so undo/redo can put
-// the caret back where the user expects.
+// Cursor positions before and after are snapshotted (when the edit
+// came from an Editor) so undo/redo can put the caret back where the
+// user expects; -1 marks a host-driven edit with no caret to restore.
+// group links the entries of one BeginGroup/EndGroup transaction; 0
+// means ungrouped. origin is the acting editor (nil for host edits)
+// — coalescing requires matching origins so keystrokes from two
+// panes, or typing plus an adjacent host edit, stay separate undo
+// steps.
 type editChange struct {
 	start        int
 	oldBytes     []byte
@@ -18,6 +24,8 @@ type editChange struct {
 	cursorBefore int
 	cursorAfter  int
 	timestamp    time.Time
+	group        uint64
+	origin       any
 }
 
 // coalesceWindow is the time gap inside which a fresh insert/delete
@@ -25,92 +33,17 @@ type editChange struct {
 // fast typing without merging across thinking pauses.
 const coalesceWindow = 500 * time.Millisecond
 
-// applyChange is the single mutation entry point. It captures the old
-// bytes, performs the replacement, drops the redo tail, and either
-// appends a new undo entry or coalesces into the previous one.
-//
-// All public mutating methods (Insert, Backspace, DeleteForward, etc.)
-// route through here so undo coverage is automatic.
+// applyChange routes an Editor-driven mutation into the shared
+// Buffer, recording this editor's caret for undo. All user-input
+// mutating methods (Insert, Backspace, DeleteForward, etc.) come
+// through here so undo coverage is automatic. The caret is placed
+// BEFORE the splice runs: OnChange fires from inside the splice and
+// its handlers must observe the post-edit caret, never a stale one
+// pointing past the new EOF.
 func (e *Editor) applyChange(start, oldEnd int, newBytes []byte, cursorAfter int) {
-	if start < 0 {
-		start = 0
-	}
-	if oldEnd > len(e.Data) {
-		oldEnd = len(e.Data)
-	}
-	if oldEnd < start {
-		oldEnd = start
-	}
-	old := append([]byte(nil), e.Data[start:oldEnd]...)
-	newCopy := append([]byte(nil), newBytes...)
-
-	ch := editChange{
-		start:        start,
-		oldBytes:     old,
-		newBytes:     newCopy,
-		cursorBefore: e.Cursor,
-		cursorAfter:  cursorAfter,
-		timestamp:    time.Now(),
-	}
-
-	// Drop any redo tail before adding a new entry.
-	if e.undoAt < len(e.undoStack) {
-		e.undoStack = e.undoStack[:e.undoAt]
-	}
-
-	// Try to coalesce with the previous change.
-	merged := false
-	if e.undoAt > 0 {
-		prev := &e.undoStack[e.undoAt-1]
-		kind := coalesceKind(prev, &ch)
-		switch kind {
-		case mergeAppend:
-			// Pure-insert typing: append both buffers. Adjacent
-			// forward-deletes (Del key) also fit here — the second
-			// delete is at the same start as the first, so the
-			// chars-deleted-from-original line up in order.
-			prev.newBytes = append(prev.newBytes, ch.newBytes...)
-			prev.oldBytes = append(prev.oldBytes, ch.oldBytes...)
-			prev.cursorAfter = ch.cursorAfter
-			prev.timestamp = ch.timestamp
-			merged = true
-		case mergePrepend:
-			// Backspace: characters were deleted right-to-left.
-			// The new change is to the LEFT of prev; rebuild as one
-			// span that re-inserts both in original (left-to-right)
-			// order on undo.
-			prev.start = ch.start
-			prev.oldBytes = append(append([]byte(nil), ch.oldBytes...), prev.oldBytes...)
-			prev.cursorAfter = ch.cursorAfter
-			prev.timestamp = ch.timestamp
-			merged = true
-		case mergeNone:
-			// Adjacent edits aren't coalescable — fall through to
-			// the no-merge path below where we push a fresh entry.
-		}
-	}
-	if !merged {
-		e.undoStack = append(e.undoStack, ch)
-		e.undoAt = len(e.undoStack)
-	}
-
-	// Perform the replacement on Data.
-	tail := append([]byte(nil), e.Data[oldEnd:]...)
-	e.Data = append(e.Data[:start], newCopy...)
-	e.Data = append(e.Data, tail...)
+	before := e.Cursor
 	e.Cursor = cursorAfter
-	e.Modified = true
-	e.notifyChange()
-}
-
-// notifyChange increments the change counter and fires OnChange.
-// Centralized so applyChange / Undo / Redo all emit a single, ordered
-// version sequence.
-func (e *Editor) notifyChange() {
-	e.changeVersion++
-	if e.OnChange != nil {
-		e.OnChange(e.changeVersion)
-	}
+	e.Buf.splice(e, start, oldEnd, newBytes, before, cursorAfter)
 }
 
 // mergeMode describes how two adjacent changes coalesce.
@@ -175,52 +108,49 @@ func containsByte(b []byte, c byte) bool {
 	return false
 }
 
-// Undo reverses the most-recent change. No-op when at the bottom of
-// the stack.
+// Undo reverses the most-recent change (or whole group) on the shared
+// buffer and jumps this editor's caret to the undone edit's site —
+// even when the edit was made through another pane. No-op at the
+// bottom of the stack — and under ReadOnly: a read-only pane over a
+// shared buffer must not revert the writable pane's edits. The
+// version bump (OnChange) fires only after this editor's caret state
+// is settled.
 func (e *Editor) Undo() {
-	if e.undoAt == 0 {
+	if e.ReadOnly {
 		return
 	}
-	e.undoAt--
-	ch := &e.undoStack[e.undoAt]
-	// Reverse: Data[start:start+len(newBytes)] → oldBytes.
-	end := ch.start + len(ch.newBytes)
-	tail := append([]byte(nil), e.Data[end:]...)
-	e.Data = append(e.Data[:ch.start], ch.oldBytes...)
-	e.Data = append(e.Data, tail...)
-	e.Cursor = ch.cursorBefore
+	cursor, ok := e.Buf.undoCore(e)
+	if !ok {
+		return
+	}
+	e.Cursor = e.Buf.clampToRuneStart(cursor)
 	e.SelAnchor = -1
-	e.Modified = e.undoAt > 0
+	e.CollapseCarets()
 	e.adjustScroll()
-	e.notifyChange()
+	e.Buf.bumpVersion()
 }
 
-// Redo re-applies the next change in the stack. No-op at the top.
+// Redo re-applies the next change (or whole group). No-op at the top
+// and under ReadOnly.
 func (e *Editor) Redo() {
-	if e.undoAt >= len(e.undoStack) {
+	if e.ReadOnly {
 		return
 	}
-	ch := &e.undoStack[e.undoAt]
-	end := ch.start + len(ch.oldBytes)
-	tail := append([]byte(nil), e.Data[end:]...)
-	e.Data = append(e.Data[:ch.start], ch.newBytes...)
-	e.Data = append(e.Data, tail...)
-	e.Cursor = ch.cursorAfter
+	cursor, ok := e.Buf.redoCore(e)
+	if !ok {
+		return
+	}
+	e.Cursor = e.Buf.clampToRuneStart(cursor)
 	e.SelAnchor = -1
-	e.undoAt++
-	e.Modified = true
+	e.CollapseCarets()
 	e.adjustScroll()
-	e.notifyChange()
+	e.Buf.bumpVersion()
 }
 
 // CanUndo / CanRedo report whether the corresponding action will do
 // anything. Useful for menu enabling.
-func (e *Editor) CanUndo() bool { return e.undoAt > 0 }
-func (e *Editor) CanRedo() bool { return e.undoAt < len(e.undoStack) }
+func (e *Editor) CanUndo() bool { return e.Buf.CanUndo() }
+func (e *Editor) CanRedo() bool { return e.Buf.CanRedo() }
 
-// ResetUndo wipes the undo history. Called by SetText on full-buffer
-// replacement so old state from before the swap doesn't leak through.
-func (e *Editor) ResetUndo() {
-	e.undoStack = nil
-	e.undoAt = 0
-}
+// ResetUndo wipes the undo history.
+func (e *Editor) ResetUndo() { e.Buf.ResetUndo() }

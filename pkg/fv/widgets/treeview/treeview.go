@@ -76,6 +76,13 @@ type TreeView struct {
 	// it in the editor" without forcing the user to first click a
 	// different row to reset focus.
 	OnActivate func(n *Node)
+
+	// OnContextMenu fires on a right-click over a visible row, after
+	// the row has been focused. where is in screen coordinates — pass
+	// it straight to popupmenu.New / HoverPopup.Show to open a context
+	// menu at the pointer. Toggle/OnActivate do NOT fire for
+	// right-clicks.
+	OnContextMenu func(n *Node, where geom.Point)
 }
 
 // New constructs an empty tree.
@@ -83,9 +90,9 @@ func New(bounds geom.Rect, roots []*Node) *TreeView {
 	t := &TreeView{
 		Base:        views.NewBase(bounds),
 		Roots:       roots,
-		Color:       theme.Get().BreadcrumbNormal,
-		FocusColor:  theme.Get().InputArrow,
-		BranchColor: theme.Get().BreadcrumbSeparator,
+		Color:       theme.Get().TreeNormal,
+		FocusColor:  theme.Get().TreeFocused,
+		BranchColor: theme.Get().TreeBranch,
 	}
 	t.SetSelf(t)
 	t.Options |= consts.OfSelectable | consts.OfFirstClick
@@ -225,6 +232,24 @@ func (t *TreeView) HandleEvent(ev *drivers.Event) {
 		}
 		t.clampTop()
 		t.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseDown && ev.Buttons&consts.MbRightButton != 0 {
+		local := t.MakeLocal(ev.Where)
+		idx := t.topVisible() + local.Y
+		if idx >= 0 && idx < len(t.flat) {
+			t.Focused = idx
+			if t.Owner != nil {
+				t.Owner.Focus(t.Self())
+			}
+			// No Toggle / OnActivate / commit on right-click — just
+			// focus the row and hand the host a context-menu anchor
+			// (screen coords, ready for popupmenu.New / hoverpopup).
+			if t.OnContextMenu != nil {
+				t.OnContextMenu(t.flat[idx].node, ev.Where)
+			}
+			t.ClearEvent(ev)
+		}
 		return
 	}
 	if ev.What == consts.EvMouseDown {

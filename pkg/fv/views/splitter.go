@@ -179,7 +179,10 @@ func NewSplitGroup(bounds geom.Rect, orientation SplitOrientation, splitPos int)
 	g := &SplitGroup{Orientation: orientation, SplitPos: splitPos}
 	InitGroup(&g.Group, bounds)
 	g.SetSelf(g)
-	g.GrowMode = consts.GfGrowAll
+	// Anchor top-left, stretch bottom-right. GfGrowAll also shifts the
+	// origin, sliding the whole split area toward the bottom-right when
+	// the host window grows instead of stretching in place.
+	g.GrowMode = consts.GfGrowHiX | consts.GfGrowHiY
 	return g
 }
 

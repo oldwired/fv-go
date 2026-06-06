@@ -20,6 +20,7 @@ import (
 	"github.com/oldwired/fv-go/pkg/fv/widgets/combobox"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/grid"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/heapview"
+	"github.com/oldwired/fv-go/pkg/fv/widgets/hoverpopup"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/hyperlink"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/markdown"
 	"github.com/oldwired/fv-go/pkg/fv/widgets/progressbar"
@@ -95,6 +96,9 @@ func TestAllConstructorsSetSelf(t *testing.T) {
 		}},
 		{"HeapView", func() views.View {
 			return heapview.New(r)
+		}},
+		{"HoverPopup", func() views.View {
+			return hoverpopup.New()
 		}},
 		{"Hyperlink", func() views.View {
 			return hyperlink.New(r, "label", "https://example.com")

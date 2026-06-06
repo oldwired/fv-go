@@ -120,6 +120,7 @@ func buildMenuBar(bounds geom.Rect) *menus.MenuBar {
 		&menus.Item{Name: "Editor (Open ~F~ile...)", Command: cmAppEditorOpen},
 		&menus.Item{Name: "Editor + ~G~utter", Command: cmAppEditorWithGutter},
 		&menus.Item{Name: "Editor + ~S~yntax (Go)", Command: cmAppEditorSyntax},
+		&menus.Item{Name: "Editor La~b~ (IDE features)", Command: cmAppEditorLab},
 		menus.Separator(),
 		&menus.Item{Name: "~H~ex Editor", Command: cmAppHexEdit},
 		&menus.Item{Name: "Data Gri~d~", Command: cmAppGrid},

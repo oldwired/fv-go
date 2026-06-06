@@ -307,20 +307,60 @@ func (g *Group) MakeFirst(v View) {
 // initial Insert only marks SfSelected, so a click on the
 // already-current child still needs to gain SfFocused. Marks the
 // program dirty for the same reason as MakeFirst.
+//
+// Focus propagates up the owner chain: focusing a child of a nested
+// group (an editor pane inside a SplitGroup inside a Window) also
+// focuses the group within ITS owner, and so on. Keyboard dispatch
+// descends through Current() at every level, so without the upward
+// walk a click several groups deep would move the inner focus but
+// keys would still be routed to whichever sibling the outer group
+// last had current.
+//
+// SfFocused is also maintained DOWN both subtrees: the abandoned
+// current's inner focus chain loses the flag (otherwise widgets in a
+// de-focused pane keep rendering focused forever) and the new
+// current's chain regains it. SfSelected stays per-level — it is the
+// group's memory of which child becomes current when focus returns.
 func (g *Group) Focus(v View) {
 	for i, c := range g.Children {
 		if c == v {
 			if i != g.current {
 				if cur := g.Current(); cur != nil {
 					cur.BaseView().State &^= consts.SfSelected | consts.SfFocused
+					setFocusedDown(currentOf(cur), false)
 				}
 				g.current = i
 			}
 			v.BaseView().State |= consts.SfSelected | consts.SfFocused
+			setFocusedDown(currentOf(v), true)
 			g.refreshActive()
 			MarkDirty()
+			if g.Owner != nil && g.Self() != nil {
+				g.Owner.Focus(g.Self())
+			}
 			return
 		}
+	}
+}
+
+// currentOf returns v's focused child when v is (or embeds) a Group,
+// nil for leaf views.
+func currentOf(v View) View {
+	if ig, ok := v.(interface{ InnerGroup() *Group }); ok {
+		return ig.InnerGroup().Current()
+	}
+	return nil
+}
+
+// setFocusedDown toggles SfFocused along v's Current() chain.
+func setFocusedDown(v View, on bool) {
+	for v != nil {
+		if on {
+			v.BaseView().State |= consts.SfFocused
+		} else {
+			v.BaseView().State &^= consts.SfFocused
+		}
+		v = currentOf(v)
 	}
 }
 

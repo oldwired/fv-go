@@ -13,15 +13,15 @@ func newTestEditor() *Editor {
 func TestUndoSimpleInsert(t *testing.T) {
 	e := newTestEditor()
 	e.Insert("hello")
-	if got := string(e.Data); got != "hello" {
+	if got := e.Text(); got != "hello" {
 		t.Fatalf("after insert: %q", got)
 	}
 	e.Undo()
-	if got := string(e.Data); got != "" {
+	if got := e.Text(); got != "" {
 		t.Fatalf("after undo: %q (want empty)", got)
 	}
 	e.Redo()
-	if got := string(e.Data); got != "hello" {
+	if got := e.Text(); got != "hello" {
 		t.Fatalf("after redo: %q (want %q)", got, "hello")
 	}
 }
@@ -33,11 +33,11 @@ func TestUndoCoalesceTyping(t *testing.T) {
 	for _, r := range "hello" {
 		e.Insert(string(r))
 	}
-	if got := string(e.Data); got != "hello" {
+	if got := e.Text(); got != "hello" {
 		t.Fatalf("data: %q", got)
 	}
 	e.Undo()
-	if got := string(e.Data); got != "" {
+	if got := e.Text(); got != "" {
 		t.Fatalf("after single undo, expected empty (coalesced), got %q", got)
 	}
 }
@@ -49,17 +49,17 @@ func TestUndoNoCoalesceAcrossNewline(t *testing.T) {
 	e.Insert("cd")
 	// First undo removes "cd".
 	e.Undo()
-	if got := string(e.Data); got != "ab\n" {
+	if got := e.Text(); got != "ab\n" {
 		t.Fatalf("undo 1: %q", got)
 	}
 	// Second undo removes "\n".
 	e.Undo()
-	if got := string(e.Data); got != "ab" {
+	if got := e.Text(); got != "ab" {
 		t.Fatalf("undo 2: %q", got)
 	}
 	// Third undo removes "ab".
 	e.Undo()
-	if got := string(e.Data); got != "" {
+	if got := e.Text(); got != "" {
 		t.Fatalf("undo 3: %q", got)
 	}
 }
@@ -71,11 +71,11 @@ func TestUndoBackspaceCoalesce(t *testing.T) {
 	e.Backspace()
 	e.Backspace()
 	e.Backspace()
-	if got := string(e.Data); got != "he" {
+	if got := e.Text(); got != "he" {
 		t.Fatalf("after 3 backspaces: %q", got)
 	}
 	e.Undo()
-	if got := string(e.Data); got != "hello" {
+	if got := e.Text(); got != "hello" {
 		t.Fatalf("undo should restore all 3 backspaces: %q", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestUndoReplaceAllIsOneEntry(t *testing.T) {
 		t.Fatalf("ReplaceAll: %d (want 3)", n)
 	}
 	e.Undo()
-	if got := string(e.Data); got != "the quick brown the fox the dog" {
+	if got := e.Text(); got != "the quick brown the fox the dog" {
 		t.Fatalf("after undo: %q", got)
 	}
 }
