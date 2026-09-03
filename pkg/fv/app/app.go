@@ -781,6 +781,8 @@ func NewApplication() (*Application, error) {
 // tree first to call Stop() on any descendant that satisfies the
 // Stoppable interface (Terminal does), so child PTYs get SIGHUP
 // before the terminal is restored. Idempotent — safe to call twice.
+// It does not call Window.Close, so interactive close-request vetoes
+// cannot block application cleanup.
 //
 // After tree shutdown, every package-global hook NewProgram /
 // NewApplication installed is cleared back to nil. Without this, a

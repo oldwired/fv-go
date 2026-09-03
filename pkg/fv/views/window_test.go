@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oldwired/fv-go/pkg/fv/consts"
+	"github.com/oldwired/fv-go/pkg/fv/drivers"
 	"github.com/oldwired/fv-go/pkg/fv/geom"
 )
 
@@ -52,6 +54,155 @@ func TestWindowOnCloseFiresBeforeDelete(t *testing.T) {
 		if c == w.self {
 			t.Error("window not removed from parent after Close()")
 		}
+	}
+}
+
+func TestWindowAllowedCloseDetachesAndNotifies(t *testing.T) {
+	parent := NewGroup(geom.NewRect(0, 0, 80, 24))
+	w := NewWindow(geom.NewRect(2, 2, 30, 12), "child", 0)
+	parent.Insert(w)
+	requests := 0
+	closes := 0
+	w.OnCloseRequest = func() bool {
+		requests++
+		return true
+	}
+	w.OnClose = func() { closes++ }
+
+	w.Close()
+
+	if requests != 1 {
+		t.Errorf("OnCloseRequest calls = %d, want 1", requests)
+	}
+	if closes != 1 {
+		t.Errorf("OnClose calls = %d, want 1", closes)
+	}
+	if w.Owner != nil {
+		t.Error("allowed close left window attached")
+	}
+}
+
+func TestWindowVetoedCloseStaysAttached(t *testing.T) {
+	parent := NewGroup(geom.NewRect(0, 0, 80, 24))
+	w := NewWindow(geom.NewRect(2, 2, 30, 12), "child", 0)
+	parent.Insert(w)
+	closes := 0
+	w.OnCloseRequest = func() bool { return false }
+	w.OnClose = func() { closes++ }
+
+	w.Close()
+
+	if w.Owner != parent {
+		t.Error("vetoed close detached window")
+	}
+	if closes != 0 {
+		t.Errorf("OnClose calls = %d, want 0", closes)
+	}
+}
+
+func TestWindowNilCloseRequestPreservesBehavior(t *testing.T) {
+	parent := NewGroup(geom.NewRect(0, 0, 80, 24))
+	w := NewWindow(geom.NewRect(2, 2, 30, 12), "child", 0)
+	parent.Insert(w)
+	closes := 0
+	w.OnClose = func() { closes++ }
+
+	w.Close()
+
+	if closes != 1 {
+		t.Errorf("OnClose calls = %d, want 1", closes)
+	}
+	if w.Owner != nil {
+		t.Error("nil OnCloseRequest left window attached")
+	}
+}
+
+func TestWindowInteractiveClosePathsHonorVeto(t *testing.T) {
+	tests := []struct {
+		name  string
+		close func(*Window, *drivers.Event)
+	}{
+		{
+			name: "frame close box",
+			close: func(w *Window, ev *drivers.Event) {
+				ev.What = consts.EvMouseDown
+				ev.Where = geom.Point{X: w.Origin.X + 2, Y: w.Origin.Y}
+				w.HandleEvent(ev)
+			},
+		},
+		{
+			name: "CmClose",
+			close: func(w *Window, ev *drivers.Event) {
+				ev.What = consts.EvCommand
+				ev.Command = consts.CmClose
+				w.HandleEvent(ev)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := NewGroup(geom.NewRect(0, 0, 80, 24))
+			w := NewWindow(geom.NewRect(2, 2, 30, 12), "child", 0)
+			parent.Insert(w)
+			requests := 0
+			closes := 0
+			w.OnCloseRequest = func() bool {
+				requests++
+				return false
+			}
+			w.OnClose = func() { closes++ }
+			ev := &drivers.Event{}
+
+			tt.close(w, ev)
+
+			if requests != 1 {
+				t.Errorf("OnCloseRequest calls = %d, want 1", requests)
+			}
+			if closes != 0 {
+				t.Errorf("OnClose calls = %d, want 0", closes)
+			}
+			if w.Owner != parent {
+				t.Error("vetoed interactive close detached window")
+			}
+			if ev.What != consts.EvNothing {
+				t.Errorf("close event was not consumed: What = %#x", ev.What)
+			}
+		})
+	}
+}
+
+func TestWindowModalCloseHonorsRequest(t *testing.T) {
+	parent := NewGroup(geom.NewRect(0, 0, 80, 24))
+	w := NewWindow(geom.NewRect(2, 2, 30, 12), "modal", 0)
+	parent.Insert(w)
+	w.EndModal(0)
+	w.ClearEndState()
+	allow := false
+	closes := 0
+	w.OnCloseRequest = func() bool { return allow }
+	w.OnClose = func() { closes++ }
+
+	w.Close()
+
+	if w.EndStateValue() != 0 {
+		t.Errorf("vetoed modal close set end state to %#x", w.EndStateValue())
+	}
+	if closes != 0 {
+		t.Errorf("OnClose calls after veto = %d, want 0", closes)
+	}
+	if w.Owner != parent {
+		t.Error("vetoed modal close detached window")
+	}
+
+	allow = true
+	w.Close()
+
+	if w.EndStateValue() != consts.CmCancel {
+		t.Errorf("allowed modal close end state = %#x, want CmCancel", w.EndStateValue())
+	}
+	if closes != 1 {
+		t.Errorf("OnClose calls after allowed close = %d, want 1", closes)
 	}
 }
 
