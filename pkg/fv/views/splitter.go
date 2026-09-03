@@ -29,6 +29,7 @@ type Splitter struct {
 	Orientation          SplitOrientation
 	Panel1, Panel2       View
 	MinPanel1, MinPanel2 int
+	onMoved              func()
 }
 
 // NewSplitter constructs a splitter between two pre-existing panels.
@@ -133,9 +134,9 @@ func (s *Splitter) HandleEvent(ev *drivers.Event) {
 
 // move shifts the splitter by d cells along its axis, respecting the
 // per-panel minimums.
-func (s *Splitter) move(d int) {
-	if s.Panel1 == nil || s.Panel2 == nil {
-		return
+func (s *Splitter) move(d int) bool {
+	if d == 0 || s.Panel1 == nil || s.Panel2 == nil {
+		return false
 	}
 	p1 := s.Panel1.BaseView()
 	p2 := s.Panel2.BaseView()
@@ -143,7 +144,7 @@ func (s *Splitter) move(d int) {
 		newWidth1 := p1.Size.X + d
 		newWidth2 := p2.Size.X - d
 		if newWidth1 < s.MinPanel1 || newWidth2 < s.MinPanel2 {
-			return
+			return false
 		}
 		p1.Self().ChangeBounds(geom.NewRect(p1.Origin.X, p1.Origin.Y, p1.Origin.X+newWidth1, p1.Origin.Y+p1.Size.Y))
 		s.MoveTo(s.Origin.X+d, s.Origin.Y)
@@ -152,12 +153,16 @@ func (s *Splitter) move(d int) {
 		newHeight1 := p1.Size.Y + d
 		newHeight2 := p2.Size.Y - d
 		if newHeight1 < s.MinPanel1 || newHeight2 < s.MinPanel2 {
-			return
+			return false
 		}
 		p1.Self().ChangeBounds(geom.NewRect(p1.Origin.X, p1.Origin.Y, p1.Origin.X+p1.Size.X, p1.Origin.Y+newHeight1))
 		s.MoveTo(s.Origin.X, s.Origin.Y+d)
 		p2.Self().ChangeBounds(geom.NewRect(p2.Origin.X, p2.Origin.Y+d, p2.Origin.X+p2.Size.X, p2.Origin.Y+d+newHeight2))
 	}
+	if s.onMoved != nil {
+		s.onMoved()
+	}
+	return true
 }
 
 // SplitGroup is a convenience container that owns Panel1, a Splitter,
@@ -171,6 +176,9 @@ type SplitGroup struct {
 	Splitter    *Splitter
 	Panel1      View
 	Panel2      View
+
+	// OnRatioChanged runs after an accepted splitter drag has updated SplitPos.
+	OnRatioChanged func(float64)
 }
 
 // NewSplitGroup builds an empty split group; SetPanels installs the
@@ -196,7 +204,18 @@ func (g *SplitGroup) SetPanels(p1, p2 View) {
 	g.Panel2 = p2
 	g.recalc()
 	g.Insert(p1)
-	g.Splitter = NewSplitter(geom.Rect{}, g.Orientation, p1, p2, 4, 4)
+	splitter := NewSplitter(geom.Rect{}, g.Orientation, p1, p2, 4, 4)
+	splitter.onMoved = func() {
+		if g.Orientation == SplitVertical {
+			g.SplitPos = splitter.Origin.X
+		} else {
+			g.SplitPos = splitter.Origin.Y
+		}
+		if g.OnRatioChanged != nil {
+			g.OnRatioChanged(g.GetRatio())
+		}
+	}
+	g.Splitter = splitter
 	g.Insert(g.Splitter)
 	g.Insert(p2)
 	g.recalc()
@@ -204,7 +223,13 @@ func (g *SplitGroup) SetPanels(p1, p2 View) {
 
 // ChangeBounds re-lays out children when the container resizes.
 func (g *SplitGroup) ChangeBounds(r geom.Rect) {
+	oldTotal := g.splitAxisSize()
+	ratio := g.GetRatio()
 	g.Group.ChangeBounds(r)
+	newTotal := g.splitAxisSize()
+	if oldTotal > 0 && newTotal > 0 && oldTotal != newTotal {
+		g.SplitPos = int(ratio * float64(newTotal))
+	}
 	g.recalc()
 }
 
@@ -212,10 +237,7 @@ func (g *SplitGroup) ChangeBounds(r geom.Rect) {
 // split axis. Useful for persisting layouts across resizes — restore
 // with SetRatio.
 func (g *SplitGroup) GetRatio() float64 {
-	total := g.Size.X
-	if g.Orientation == SplitHorizontal {
-		total = g.Size.Y
-	}
+	total := g.splitAxisSize()
 	if total <= 0 {
 		return 0
 	}
@@ -223,8 +245,8 @@ func (g *SplitGroup) GetRatio() float64 {
 }
 
 // SetRatio places the splitter at r * total (clamped to [0,1]) and
-// re-lays out. Drives fvmux's keyboard resize mode (Ctrl-G R H/J/K/L)
-// without simulating mouse drags.
+// re-lays out. It does not invoke OnRatioChanged, so consumers can
+// restore a persisted ratio without creating a notification loop.
 func (g *SplitGroup) SetRatio(r float64) {
 	if r < 0 {
 		r = 0
@@ -232,13 +254,17 @@ func (g *SplitGroup) SetRatio(r float64) {
 	if r > 1 {
 		r = 1
 	}
-	total := g.Size.X
-	if g.Orientation == SplitHorizontal {
-		total = g.Size.Y
-	}
+	total := g.splitAxisSize()
 	g.SplitPos = int(r * float64(total))
 	g.recalc()
 	MarkDirty()
+}
+
+func (g *SplitGroup) splitAxisSize() int {
+	if g.Orientation == SplitHorizontal {
+		return g.Size.Y
+	}
+	return g.Size.X
 }
 
 // SetMinPanel updates the per-panel minimum sizes on the Splitter and

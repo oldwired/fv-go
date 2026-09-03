@@ -1,6 +1,7 @@
 package views
 
 import (
+	"math"
 	"testing"
 
 	"github.com/oldwired/fv-go/pkg/fv/geom"
@@ -41,6 +42,146 @@ func TestSplitGroupRatio(t *testing.T) {
 	if g.Splitter.MinPanel1 != 10 || g.Splitter.MinPanel2 != 20 {
 		t.Errorf("SetMinPanel did not propagate: got (%d, %d), want (10, 20)",
 			g.Splitter.MinPanel1, g.Splitter.MinPanel2)
+	}
+}
+
+func TestSplitGroupDragUpdatesRatio(t *testing.T) {
+	tests := []struct {
+		name        string
+		orientation SplitOrientation
+		bounds      geom.Rect
+		delta       int
+		wantPos     int
+		wantRatio   float64
+	}{
+		{"vertical", SplitVertical, geom.NewRect(0, 0, 100, 40), 10, 30, 0.3},
+		{"horizontal", SplitHorizontal, geom.NewRect(0, 0, 80, 40), -5, 15, 0.375},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewSplitGroup(tt.bounds, tt.orientation, 20)
+			g.SetPanels(newDummy(geom.Rect{}), newDummy(geom.Rect{}))
+
+			if moved := g.Splitter.move(tt.delta); !moved {
+				t.Fatal("splitter move was rejected")
+			}
+			if g.SplitPos != tt.wantPos {
+				t.Errorf("SplitPos = %d, want %d", g.SplitPos, tt.wantPos)
+			}
+			if ratio := g.GetRatio(); math.Abs(ratio-tt.wantRatio) > 1e-9 {
+				t.Errorf("GetRatio() = %v, want %v", ratio, tt.wantRatio)
+			}
+		})
+	}
+}
+
+func TestSplitGroupResizePreservesDraggedRatio(t *testing.T) {
+	tests := []struct {
+		name        string
+		orientation SplitOrientation
+		bounds      geom.Rect
+		resized     geom.Rect
+	}{
+		{"vertical", SplitVertical, geom.NewRect(0, 0, 100, 40), geom.NewRect(0, 0, 200, 40)},
+		{"horizontal", SplitHorizontal, geom.NewRect(0, 0, 80, 40), geom.NewRect(0, 0, 80, 80)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewSplitGroup(tt.bounds, tt.orientation, 20)
+			g.SetPanels(newDummy(geom.Rect{}), newDummy(geom.Rect{}))
+			g.Splitter.move(10)
+			wantRatio := g.GetRatio()
+
+			g.ChangeBounds(tt.resized)
+
+			if ratio := g.GetRatio(); math.Abs(ratio-wantRatio) > 1e-9 {
+				t.Errorf("GetRatio() after resize = %v, want %v", ratio, wantRatio)
+			}
+		})
+	}
+}
+
+func TestSplitGroupOnRatioChangedAfterDrag(t *testing.T) {
+	g := NewSplitGroup(geom.NewRect(0, 0, 100, 40), SplitVertical, 50)
+	g.SetPanels(newDummy(geom.Rect{}), newDummy(geom.Rect{}))
+	var ratios []float64
+	var splitPos int
+	var currentRatio float64
+	g.OnRatioChanged = func(ratio float64) {
+		ratios = append(ratios, ratio)
+		splitPos = g.SplitPos
+		currentRatio = g.GetRatio()
+	}
+
+	g.Splitter.move(10)
+
+	if len(ratios) != 1 {
+		t.Fatalf("OnRatioChanged calls = %d, want 1", len(ratios))
+	}
+	if math.Abs(ratios[0]-0.6) > 1e-9 {
+		t.Errorf("OnRatioChanged ratio = %v, want 0.6", ratios[0])
+	}
+	if splitPos != 60 {
+		t.Errorf("SplitPos during callback = %d, want 60", splitPos)
+	}
+	if ratios[0] != currentRatio {
+		t.Errorf("callback ratio = %v, GetRatio() during callback = %v", ratios[0], currentRatio)
+	}
+}
+
+func TestSplitGroupRejectedMoveDoesNotNotify(t *testing.T) {
+	tests := []struct {
+		name        string
+		orientation SplitOrientation
+		bounds      geom.Rect
+	}{
+		{"vertical", SplitVertical, geom.NewRect(0, 0, 30, 20)},
+		{"horizontal", SplitHorizontal, geom.NewRect(0, 0, 20, 30)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewSplitGroup(tt.bounds, tt.orientation, 10)
+			g.SetPanels(newDummy(geom.Rect{}), newDummy(geom.Rect{}))
+			g.SetMinPanel(10, 10)
+			calls := 0
+			g.OnRatioChanged = func(float64) { calls++ }
+
+			if moved := g.Splitter.move(-1); moved {
+				t.Error("move below Panel1 minimum was accepted")
+			}
+			if moved := g.Splitter.move(10); moved {
+				t.Error("move below Panel2 minimum was accepted")
+			}
+			if moved := g.Splitter.move(0); moved {
+				t.Error("zero-distance move was accepted")
+			}
+			if g.SplitPos != 10 {
+				t.Errorf("SplitPos = %d, want 10", g.SplitPos)
+			}
+			if calls != 0 {
+				t.Errorf("OnRatioChanged calls = %d, want 0", calls)
+			}
+		})
+	}
+}
+
+func TestSplitGroupSetRatioDoesNotNotify(t *testing.T) {
+	g := NewSplitGroup(geom.NewRect(0, 0, 100, 40), SplitVertical, 50)
+	g.SetPanels(newDummy(geom.Rect{}), newDummy(geom.Rect{}))
+	calls := 0
+	g.OnRatioChanged = func(float64) { calls++ }
+
+	g.SetRatio(0.25)
+	g.ChangeBounds(geom.NewRect(0, 0, 200, 40))
+
+	if calls != 0 {
+		t.Errorf("OnRatioChanged calls = %d, want 0", calls)
+	}
+	if g.SplitPos != 50 {
+		t.Errorf("SplitPos after SetRatio and resize = %d, want 50", g.SplitPos)
 	}
 }
 
