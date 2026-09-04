@@ -54,6 +54,12 @@ type MenuBar struct {
 
 	Menu     *Menu
 	hotIndex int // currently highlighted top-level item, -1 = none
+
+	// PassThroughRawKeys leaves F10 and Alt-menu mnemonics untouched when
+	// the active focus chain contains an SfRawKeys view. It defaults to
+	// false for source and behavior compatibility with classic Turbo Vision
+	// applications. Terminal-hosting applications should enable it.
+	PassThroughRawKeys bool
 }
 
 // NewMenuBar builds a horizontal menu bar with the given menu tree.
@@ -111,6 +117,10 @@ func (m *MenuBar) HandleEvent(ev *drivers.Event) {
 		return
 	}
 	if ev.What == consts.EvKeyDown {
+		if m.PassThroughRawKeys && m.Owner != nil &&
+			views.FocusChainHasState(m.Owner, consts.SfRawKeys) {
+			return
+		}
 		if ev.KeyShift&consts.KbAltShift != 0 {
 			letter := byte(ev.UnicodeChar)
 			if letter == 0 {

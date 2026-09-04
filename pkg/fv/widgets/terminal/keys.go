@@ -5,6 +5,7 @@ import (
 
 	"github.com/oldwired/fv-go/pkg/fv/consts"
 	"github.com/oldwired/fv-go/pkg/fv/drivers"
+	"github.com/oldwired/fv-go/pkg/fv/term"
 )
 
 // encodeMouseSGR formats one FV mouse event as an SGR-1006 escape
@@ -90,154 +91,200 @@ func mouseButtonCode(ev *drivers.Event) int {
 	return b
 }
 
-// keyToBytes translates one FV key event into the byte sequence the
-// PTY child expects. Returns nil for events that shouldn't be sent
-// (focus changes, mouse, …).
-//
-// The mapping is the standard "xterm-like" set: navigation keys go out
-// as the appropriate CSI escape, ASCII passes through, and Alt+letter
-// gets the ESC prefix that most modern shells expect.
-func keyToBytes(ev *drivers.Event) []byte {
-	if ev.What != consts.EvKeyDown {
+// keyToBytes translates one FV key event into the byte sequence the PTY child
+// expects. applicationCursor is the child-controlled DECCKM state.
+// EffectiveKey supplies one normalized identity while preserving Event's
+// legacy public record layout.
+func keyToBytes(ev *drivers.Event, applicationCursor bool) []byte {
+	id := ev.EffectiveKey()
+	if !id.Valid {
 		return nil
 	}
-	// Navigation / function keys via KeyCode.
-	switch ev.KeyCode {
-	case consts.KbEnter:
-		return []byte{'\r'}
-	case consts.KbTab:
-		return []byte{'\t'}
-	case consts.KbShiftTab:
-		return []byte("\x1b[Z")
-	case consts.KbBack:
-		return []byte{0x7F}
-	case consts.KbEsc:
-		return []byte{0x1B}
-	case consts.KbSpaceBar:
-		// Space is emitted by the reader as a named Key (not a Rune),
-		// so the UnicodeChar fall-through below doesn't fire. Without
-		// this case, the space bar is silently dropped.
-		return []byte{' '}
-	case consts.KbUp:
-		return []byte("\x1b[A")
-	case consts.KbDown:
-		return []byte("\x1b[B")
-	case consts.KbRight:
-		return []byte("\x1b[C")
-	case consts.KbLeft:
-		return []byte("\x1b[D")
-	case consts.KbHome:
-		return []byte("\x1b[H")
-	case consts.KbEnd:
-		return []byte("\x1b[F")
-	case consts.KbPgUp:
-		return []byte("\x1b[5~")
-	case consts.KbPgDn:
-		return []byte("\x1b[6~")
-	case consts.KbDel:
-		return []byte("\x1b[3~")
-	case consts.KbIns:
-		return []byte("\x1b[2~")
-	case consts.KbF1:
-		return []byte("\x1bOP")
-	case consts.KbF2:
-		return []byte("\x1bOQ")
-	case consts.KbF3:
-		return []byte("\x1bOR")
-	case consts.KbF4:
-		return []byte("\x1bOS")
-	case consts.KbF5:
-		return []byte("\x1b[15~")
-	case consts.KbF6:
-		return []byte("\x1b[17~")
-	case consts.KbF7:
-		return []byte("\x1b[18~")
-	case consts.KbF8:
-		return []byte("\x1b[19~")
-	case consts.KbF9:
-		return []byte("\x1b[20~")
-	case consts.KbF10:
-		return []byte("\x1b[21~")
-	case consts.KbF11:
-		return []byte("\x1b[23~")
-	case consts.KbF12:
-		return []byte("\x1b[24~")
-	case consts.KbCtrlBack:
-		return []byte{0x08}
+
+	if id.Key == term.KeyNone {
+		return encodeRune(id.Rune, id.Mods)
 	}
-	// Ctrl+letter from our reader arrives via KeyCode = consts.KbCtrlA..Z;
-	// map back to the raw Ctrl-modified byte.
-	if c := ctrlByte(ev.KeyCode); c != 0 {
-		return []byte{c}
+
+	// These keys use C0/classic encodings. Classic input cannot
+	// distinguish Ctrl-I from Tab or Ctrl-M from Enter; preserve the named
+	// identity consistently and only add an Alt prefix where meaningful.
+	switch id.Key {
+	case term.KeyEnter:
+		b := byte('\r')
+		if id.Mods.Has(term.ModCtrl) {
+			b = '\n'
+		}
+		return withAlt([]byte{b}, id.Mods)
+	case term.KeyTab:
+		if id.Mods.Has(term.ModShift) {
+			return []byte("\x1b[Z")
+		}
+		return withAlt([]byte{'\t'}, id.Mods)
+	case term.KeyBackspace:
+		b := byte(0x7f)
+		if id.Mods.Has(term.ModCtrl) {
+			b = 0x08
+		}
+		return withAlt([]byte{b}, id.Mods)
+	case term.KeyEsc:
+		return withAlt([]byte{0x1b}, id.Mods)
+	case term.KeySpace:
+		if id.Mods.Has(term.ModCtrl) {
+			return withAlt([]byte{0}, id.Mods)
+		}
+		return withAlt([]byte{' '}, id.Mods)
 	}
-	// Alt+letter: ESC + char.
-	if ev.KeyShift&consts.KbAltShift != 0 && ev.UnicodeChar >= ' ' {
-		return []byte{0x1B, byte(ev.UnicodeChar)}
+
+	if final, ok := cursorFinal(id.Key); ok {
+		if id.Mods == 0 {
+			if applicationCursor {
+				return []byte{0x1b, 'O', final}
+			}
+			return []byte{0x1b, '[', final}
+		}
+		return modifiedCSI("1", id.Mods, final)
 	}
-	// Plain printable rune.
-	if ev.UnicodeChar > 0 {
-		return []byte(string(ev.UnicodeChar))
+	if number, ok := tildeKeyNumber(id.Key); ok {
+		if id.Mods == 0 {
+			return []byte("\x1b[" + number + "~")
+		}
+		return modifiedCSI(number, id.Mods, '~')
+	}
+	if final, ok := ss3FunctionFinal(id.Key); ok {
+		if id.Mods == 0 {
+			return []byte{0x1b, 'O', final}
+		}
+		return modifiedCSI("1", id.Mods, final)
 	}
 	return nil
 }
 
-// ctrlByte returns the raw Ctrl-letter byte for KbCtrlA..KbCtrlZ, or 0
-// if the keycode isn't one of those. Keeps the mapping table out of
-// the main switch for readability.
-func ctrlByte(kc uint16) byte {
-	switch kc {
-	case consts.KbCtrlA:
-		return 0x01
-	case consts.KbCtrlB:
-		return 0x02
-	case consts.KbCtrlC:
-		return 0x03
-	case consts.KbCtrlD:
-		return 0x04
-	case consts.KbCtrlE:
-		return 0x05
-	case consts.KbCtrlF:
-		return 0x06
-	case consts.KbCtrlG:
-		return 0x07
-	case consts.KbCtrlH:
-		return 0x08
-	case consts.KbCtrlI:
-		return 0x09
-	case consts.KbCtrlJ:
-		return 0x0A
-	case consts.KbCtrlK:
-		return 0x0B
-	case consts.KbCtrlL:
-		return 0x0C
-	case consts.KbCtrlM:
-		return 0x0D
-	case consts.KbCtrlN:
-		return 0x0E
-	case consts.KbCtrlO:
-		return 0x0F
-	case consts.KbCtrlP:
-		return 0x10
-	case consts.KbCtrlQ:
-		return 0x11
-	case consts.KbCtrlR:
-		return 0x12
-	case consts.KbCtrlS:
-		return 0x13
-	case consts.KbCtrlT:
-		return 0x14
-	case consts.KbCtrlU:
-		return 0x15
-	case consts.KbCtrlV:
-		return 0x16
-	case consts.KbCtrlW:
-		return 0x17
-	case consts.KbCtrlX:
-		return 0x18
-	case consts.KbCtrlY:
-		return 0x19
-	case consts.KbCtrlZ:
-		return 0x1A
+func encodeRune(r rune, mods term.ModBits) []byte {
+	var out []byte
+	if mods.Has(term.ModCtrl) {
+		if c, ok := controlRuneByte(r); ok {
+			out = []byte{c}
+		}
 	}
-	return 0
+	if out == nil {
+		out = []byte(string(r))
+	}
+	return withAlt(out, mods)
+}
+
+func controlRuneByte(r rune) (byte, bool) {
+	switch {
+	case r >= 0 && r <= 0x1f:
+		return byte(r), true
+	case r >= 'a' && r <= 'z':
+		return byte(r-'a') + 1, true
+	case r >= 'A' && r <= 'Z':
+		return byte(r-'A') + 1, true
+	}
+	switch r {
+	case ' ', '@':
+		return 0, true
+	case '[':
+		return 0x1b, true
+	case '\\':
+		return 0x1c, true
+	case ']':
+		return 0x1d, true
+	case '^':
+		return 0x1e, true
+	case '_':
+		return 0x1f, true
+	case '?':
+		return 0x7f, true
+	}
+	return 0, false
+}
+
+func withAlt(payload []byte, mods term.ModBits) []byte {
+	if !mods.Has(term.ModAlt) {
+		return payload
+	}
+	out := make([]byte, 1, len(payload)+1)
+	out[0] = 0x1b
+	return append(out, payload...)
+}
+
+func modifierParam(mods term.ModBits) int {
+	m := 1
+	if mods.Has(term.ModShift) {
+		m++
+	}
+	if mods.Has(term.ModAlt) {
+		m += 2
+	}
+	if mods.Has(term.ModCtrl) {
+		m += 4
+	}
+	return m
+}
+
+func modifiedCSI(first string, mods term.ModBits, final byte) []byte {
+	return []byte("\x1b[" + first + ";" + strconv.Itoa(modifierParam(mods)) + string(final))
+}
+
+func cursorFinal(key term.Key) (byte, bool) {
+	switch key {
+	case term.KeyUp:
+		return 'A', true
+	case term.KeyDown:
+		return 'B', true
+	case term.KeyLeft:
+		return 'D', true
+	case term.KeyRight:
+		return 'C', true
+	case term.KeyHome:
+		return 'H', true
+	case term.KeyEnd:
+		return 'F', true
+	}
+	return 0, false
+}
+
+func tildeKeyNumber(key term.Key) (string, bool) {
+	switch key {
+	case term.KeyPgUp:
+		return "5", true
+	case term.KeyPgDn:
+		return "6", true
+	case term.KeyIns:
+		return "2", true
+	case term.KeyDel:
+		return "3", true
+	case term.KeyF5:
+		return "15", true
+	case term.KeyF6:
+		return "17", true
+	case term.KeyF7:
+		return "18", true
+	case term.KeyF8:
+		return "19", true
+	case term.KeyF9:
+		return "20", true
+	case term.KeyF10:
+		return "21", true
+	case term.KeyF11:
+		return "23", true
+	case term.KeyF12:
+		return "24", true
+	}
+	return "", false
+}
+
+func ss3FunctionFinal(key term.Key) (byte, bool) {
+	switch key {
+	case term.KeyF1:
+		return 'P', true
+	case term.KeyF2:
+		return 'Q', true
+	case term.KeyF3:
+		return 'R', true
+	case term.KeyF4:
+		return 'S', true
+	}
+	return 0, false
 }

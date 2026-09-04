@@ -62,6 +62,9 @@ type buffer struct {
 	wrapPending bool // cursor is "stuck" at last column waiting for next char to wrap
 	insertMode  bool
 	originMode  bool
+	// applicationCursor is DECCKM (?1). It changes unmodified cursor,
+	// Home, and End input from CSI to SS3; modified keys remain CSI.
+	applicationCursor bool
 
 	altActive    bool
 	altCells     [][]cell
@@ -809,7 +812,7 @@ func (p *parser) feedEscape(c byte) {
 	case 'c': // RIS — full reset
 		p.buf.resetTerminal()
 		p.state = sGround
-	case '=', '>': // keypad mode — ignored
+	case '=', '>': // Application keypad mode is intentionally unsupported.
 		p.state = sGround
 	default:
 		// Unknown / unimplemented — drop.
@@ -1007,7 +1010,8 @@ func (p *parser) dispatchCSI(final byte) {
 
 func (p *parser) applyDECMode(m int, set bool) {
 	switch m {
-	case 1: // DECCKM cursor key application — we just track it via the view's keyboard mapping
+	case 1: // DECCKM cursor key application
+		p.buf.applicationCursor = set
 	case 6: // DECOM origin mode
 		p.buf.originMode = set
 	case 7: // DECAWM autowrap
@@ -1168,6 +1172,7 @@ func (b *buffer) resetTerminal() {
 	b.wrapPending = false
 	b.altActive = false
 	b.cursorVisible = true
+	b.applicationCursor = false
 }
 
 // CellAt reads cell (col, row); returns the blank cell for OOB.

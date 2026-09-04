@@ -235,23 +235,7 @@ func (p *Program) HandleEvent(ev *drivers.Event) {
 // embedded shells get Ctrl+C / Ctrl+X / Ctrl+V / F-keys instead of
 // our clipboard and window-management shortcuts.
 func (p *Program) focusWantsRawKeys() bool {
-	type currenter interface{ Current() views.View }
-	var v views.View = p
-	for {
-		bv := v.BaseView()
-		if bv != nil && bv.State&consts.SfRawKeys != 0 {
-			return true
-		}
-		c, ok := v.(currenter)
-		if !ok {
-			return false
-		}
-		next := c.Current()
-		if next == nil || next == v {
-			return false
-		}
-		v = next
-	}
+	return views.FocusChainHasState(p, consts.SfRawKeys)
 }
 
 // helpCtxFromFocus walks the focus chain to find the nearest non-zero

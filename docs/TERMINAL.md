@@ -52,6 +52,27 @@ Malformed sequences fall back to "discard until next ESC" rather
 than aborting — the philosophy of terminal emulators is "be liberal
 in what you accept."
 
+## Keyboard protocol
+
+Outer input can be normalized to a logical key identity (special key or
+Unicode rune plus independent Shift, Alt, and Ctrl flags) without changing the
+legacy Turbo Vision event-record layout. The child encoder uses xterm's
+parameterized modifier forms for cursor, navigation, and F1–F12 keys.
+Alt-prefixed text remains UTF-8, and NUL has an explicit Ctrl-Space route. A
+short inter-byte deadline distinguishes a genuine Escape keypress from CSI,
+SS3, mouse, focus, paste, and Alt sequences that cross operating-system read
+boundaries.
+
+The child-controlled DECCKM mode (`CSI ? 1 h/l`) is supported: unmodified
+cursor, Home, and End keys use SS3 while enabled. Modified keys continue to use
+parameterized CSI. Application keypad mode (`ESC =` / `ESC >`) is intentionally
+unsupported; those sequences are consumed without advertising keypad-mode
+behavior to the child.
+
+Applications embedding a terminal alongside a `MenuBar` can set
+`MenuBar.PassThroughRawKeys` so F10 and Alt mnemonics reach a focused
+`SfRawKeys` view. The default remains classic menu activation for compatibility.
+
 ## Bracketed paste
 
 When the host terminal is in bracketed-paste mode (`ESC[?2004h`),

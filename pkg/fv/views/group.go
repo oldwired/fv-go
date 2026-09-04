@@ -70,6 +70,24 @@ func (g *Group) Current() View {
 	return g.Children[g.current]
 }
 
+// FocusChainHasState reports whether root or any view reached by following
+// focused Group children has every requested state bit. Framework chrome can
+// use this to respect capabilities owned by the active leaf without knowing
+// its concrete widget type.
+func FocusChainHasState(root View, state uint16) bool {
+	for v := root; v != nil; {
+		if v.BaseView().GetState(state) {
+			return true
+		}
+		next := currentOf(v)
+		if next == nil || next == v {
+			return false
+		}
+		v = next
+	}
+	return false
+}
+
 // CurrentIndex returns the focused child's index in Children, or -1 if
 // nothing is focused. Hosts that want to remember the focus across a
 // modal Insert + Delete pair can snapshot this before opening the

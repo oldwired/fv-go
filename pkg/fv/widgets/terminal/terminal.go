@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -90,9 +91,13 @@ type Terminal struct {
 	// terminal's rendering.
 	OnFeed func(in []byte) (out []byte)
 
-	buf    *buffer
-	par    *parser
-	pty    *ptyHandle
+	buf *buffer
+	par *parser
+	pty *ptyHandle
+	// input is normally the PTY handle. Keeping the write side behind the
+	// standard io.Writer contract makes the keyboard protocol independently
+	// testable without starting an interactive child process.
+	input  io.Writer
 	mu     sync.Mutex
 	closed bool
 	// started is set on the first successful Start. A second Start
@@ -249,6 +254,7 @@ func (t *Terminal) Start(name string, args []string, env []string) error {
 	}
 	t.mu.Lock()
 	t.pty = p
+	t.input = p
 	t.started = true
 	t.mu.Unlock()
 	go t.readLoop()
@@ -313,7 +319,7 @@ func (t *Terminal) BracketedPaste() bool {
 // directly; new code should prefer it. Paste is kept for symmetry
 // with the host-side clipboard story.
 func (t *Terminal) Paste(text string) error {
-	if t.pty == nil {
+	if t.input == nil {
 		return nil
 	}
 	t.mu.Lock()
@@ -328,7 +334,7 @@ func (t *Terminal) Paste(text string) error {
 	} else {
 		payload = []byte(text)
 	}
-	_, err := t.pty.Write(payload)
+	_, err := t.input.Write(payload)
 	return err
 }
 
@@ -629,7 +635,7 @@ func (t *Terminal) HandleEvent(ev *drivers.Event) {
 		t.ClearEvent(ev)
 		return
 	}
-	if t.pty == nil {
+	if t.input == nil {
 		return
 	}
 	switch ev.What {
@@ -716,12 +722,13 @@ func (t *Terminal) handleKey(ev *drivers.Event) {
 	// visible while the user is typing.
 	t.mu.Lock()
 	t.buf.snapToBottom()
+	applicationCursor := t.buf.applicationCursor
 	t.mu.Unlock()
-	bytes := keyToBytes(ev)
+	bytes := keyToBytes(ev, applicationCursor)
 	if len(bytes) == 0 {
 		return
 	}
-	_, _ = t.pty.Write(bytes)
+	_, _ = t.input.Write(bytes)
 	t.ClearEvent(ev)
 }
 
@@ -982,7 +989,7 @@ func (t *Terminal) handleMouse(ev *drivers.Event) {
 	if seq == "" {
 		return
 	}
-	_, _ = t.pty.Write([]byte(seq))
+	_, _ = t.input.Write([]byte(seq))
 	t.ClearEvent(ev)
 }
 

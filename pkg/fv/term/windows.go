@@ -239,7 +239,7 @@ func (b *winBackend) readLoop() {
 			return
 		default:
 		}
-		evs, err := b.reader.Next()
+		evs, err := b.reader.nextUntil(b.stop)
 		if err != nil {
 			return
 		}

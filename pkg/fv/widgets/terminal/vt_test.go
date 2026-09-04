@@ -160,6 +160,26 @@ func TestParserBracketedPaste(t *testing.T) {
 	}
 }
 
+func TestParserApplicationCursorMode(t *testing.T) {
+	b := newBuffer(10, 3)
+	p := newParser(b)
+	if b.applicationCursor {
+		t.Fatal("applicationCursor default should be false")
+	}
+	p.Feed([]byte("\x1b[?1h"))
+	if !b.applicationCursor {
+		t.Error("DECSET ?1 did not enable applicationCursor")
+	}
+	p.Feed([]byte("\x1b[?1l"))
+	if b.applicationCursor {
+		t.Error("DECRST ?1 did not disable applicationCursor")
+	}
+	p.Feed([]byte("\x1b[?1h\x1bc"))
+	if b.applicationCursor {
+		t.Error("RIS did not reset applicationCursor")
+	}
+}
+
 // TestParserBellCallback verifies that a BEL in the ground state fires
 // OnBell, while a BEL inside an OSC string (string-terminator) does
 // NOT fire it — only protocol BELs count.

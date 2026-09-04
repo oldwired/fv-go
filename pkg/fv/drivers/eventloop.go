@@ -158,25 +158,55 @@ func mapKey(k term.Key, mods term.ModBits) uint16 {
 		if mods.Has(term.ModCtrl) {
 			return consts.KbCtrlHome
 		}
+		if mods.Has(term.ModAlt) {
+			return consts.KbAltHome
+		}
 		return consts.KbHome
 	case term.KeyEnd:
 		if mods.Has(term.ModCtrl) {
 			return consts.KbCtrlEnd
+		}
+		if mods.Has(term.ModAlt) {
+			return consts.KbAltEnd
 		}
 		return consts.KbEnd
 	case term.KeyPgUp:
 		if mods.Has(term.ModCtrl) {
 			return consts.KbCtrlPgUp
 		}
+		if mods.Has(term.ModAlt) {
+			return consts.KbAltPgUp
+		}
 		return consts.KbPgUp
 	case term.KeyPgDn:
 		if mods.Has(term.ModCtrl) {
 			return consts.KbCtrlPgDn
 		}
+		if mods.Has(term.ModAlt) {
+			return consts.KbAltPgDn
+		}
 		return consts.KbPgDn
 	case term.KeyIns:
+		if mods.Has(term.ModCtrl) {
+			return consts.KbCtrlIns
+		}
+		if mods.Has(term.ModAlt) {
+			return consts.KbAltIns
+		}
+		if mods.Has(term.ModShift) {
+			return consts.KbShiftIns
+		}
 		return consts.KbIns
 	case term.KeyDel:
+		if mods.Has(term.ModCtrl) {
+			return consts.KbCtrlDel
+		}
+		if mods.Has(term.ModAlt) {
+			return consts.KbAltDel
+		}
+		if mods.Has(term.ModShift) {
+			return consts.KbShiftDel
+		}
 		return consts.KbDel
 	case term.KeyF1:
 		return fkey(consts.KbF1, consts.KbShiftF1, consts.KbCtrlF1, consts.KbAltF1, mods)

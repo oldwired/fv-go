@@ -15,11 +15,7 @@ import (
 //   - UTF-8 multi-byte sequences (decoded with the std lib once a
 //     complete sequence is available)
 //   - ESC followed by either:
-//   - nothing in the scan buffer -> bare Esc emitted immediately.
-//     A blocking 50ms timeout would delay every Esc keypress, which
-//     hurts interactive use more than it helps Alt-prefix disambiguation.
-//     Apps that need Alt-prefix chord handling should re-coalesce on
-//     their own clock.
+//   - nothing yet -> wait briefly for a continuation, then emit bare Esc.
 //   - '[' (CSI) or 'O' (SS3) -> parse params + final byte
 //   - a printable char -> Alt-modified key
 //   - mouse: SGR 1006 ("\x1b[<b;x;y(M|m)") preferred, X10 fallback
@@ -33,6 +29,10 @@ type reader struct {
 	in       io.Reader
 	buf      []byte
 	scan     []byte // unconsumed bytes from previous Read
+	readCh   chan readResult
+	reading  bool
+	readErr  error
+	after    func(time.Duration) <-chan time.Time
 	paste    bool
 	pasteBuf []byte
 	// pasteCapped marks the state after a bracketed-paste payload hit
@@ -58,13 +58,29 @@ type reader struct {
 	OnCellSize func(w, h int)
 }
 
+type readResult struct {
+	n   int
+	err error
+}
+
 func newReader(in io.Reader) *reader {
-	return &reader{in: in, buf: make([]byte, 4096)}
+	return &reader{
+		in:     in,
+		buf:    make([]byte, 4096),
+		readCh: make(chan readResult, 1),
+		after:  time.After,
+	}
 }
 
 // doubleClickWindow is how close in time two presses must be to count
 // as a double-click. Standard GUI choice; tcell uses 500ms.
 const doubleClickWindow = 400 * time.Millisecond
+
+// escapeSequenceTimeout is the maximum latency added to a genuine Escape
+// keypress while allowing CSI, SS3, Alt/Meta, mouse, focus, and paste prefixes
+// to cross arbitrary OS read boundaries. 25ms is short enough to feel
+// immediate and long enough to cover normal local terminal delivery jitter.
+const escapeSequenceTimeout = 25 * time.Millisecond
 
 // maxPasteBytes caps the bracketed-paste accumulator. A pathological
 // or malicious sender that opens ESC[200~ and never sends ESC[201~
@@ -77,28 +93,112 @@ const maxPasteBytes = 4 << 20 // 4 MiB
 // every Event the parser can extract from what it has. Returns an error
 // only for irrecoverable I/O failures.
 func (r *reader) Next() ([]Event, error) {
-	n, err := r.in.Read(r.buf)
-	if n > 0 {
-		r.scan = append(r.scan, r.buf[:n]...)
+	return r.nextUntil(nil)
+}
+
+// nextUntil is Next with a shutdown signal. Both platform backends use it so
+// closing fv-go can interrupt the asynchronous read used while disambiguating
+// a pending Escape. Ordinary reads retain the backend's established blocking
+// behavior.
+func (r *reader) nextUntil(stop <-chan struct{}) ([]Event, error) {
+	if r.readCh == nil {
+		r.readCh = make(chan readResult, 1)
 	}
-	if err != nil && n == 0 {
-		return nil, err
+	if r.after == nil {
+		r.after = time.After
 	}
+	if len(r.buf) == 0 {
+		r.buf = make([]byte, 4096)
+	}
+	for {
+		if evs := r.parseBuffered(); len(evs) > 0 {
+			return evs, nil
+		}
+
+		// EOF/error after a lone ESC confirms there can be no continuation;
+		// deliver Escape before surfacing the I/O result on the next call.
+		if r.readErr != nil {
+			if r.pendingEscape() {
+				r.scan = r.scan[1:]
+				return []Event{{Kind: EventKey, Key: KeyEsc}}, nil
+			}
+			err := r.readErr
+			r.readErr = nil
+			return nil, err
+		}
+
+		if r.pendingEscape() {
+			r.startRead()
+			select {
+			case result := <-r.readCh:
+				r.acceptRead(result)
+			case <-r.after(escapeSequenceTimeout):
+				r.scan = r.scan[1:]
+				return []Event{{Kind: EventKey, Key: KeyEsc}}, nil
+			case <-stop:
+				return nil, io.EOF
+			}
+			continue
+		}
+		if r.reading {
+			// An Escape may have expired while its continuation read was
+			// still blocked. Reuse that one outstanding read; never issue
+			// concurrent reads against the terminal.
+			select {
+			case result := <-r.readCh:
+				r.acceptRead(result)
+			case <-stop:
+				return nil, io.EOF
+			}
+			continue
+		}
+		select {
+		case <-stop:
+			return nil, io.EOF
+		default:
+		}
+		n, err := r.in.Read(r.buf)
+		r.acceptRead(readResult{n: n, err: err})
+	}
+}
+
+func (r *reader) parseBuffered() []Event {
 	var evs []Event
 	for {
 		ev, consumed, ok := r.parseOne()
 		if !ok {
-			break
+			return evs
 		}
 		r.scan = r.scan[consumed:]
 		if ev.Kind != EventNone {
 			evs = append(evs, ev)
 		}
 	}
-	if len(evs) == 0 && err != nil {
-		return nil, err
+}
+
+func (r *reader) pendingEscape() bool {
+	return len(r.scan) == 1 && r.scan[0] == 0x1b
+}
+
+func (r *reader) startRead() {
+	if r.reading {
+		return
 	}
-	return evs, nil
+	r.reading = true
+	go func() {
+		n, err := r.in.Read(r.buf)
+		r.readCh <- readResult{n: n, err: err}
+	}()
+}
+
+func (r *reader) acceptRead(result readResult) {
+	r.reading = false
+	if result.n > 0 {
+		r.scan = append(r.scan, r.buf[:result.n]...)
+	}
+	if result.err != nil {
+		r.readErr = result.err
+	}
 }
 
 // parseOne tries to parse exactly one event from the head of r.scan.
@@ -127,16 +227,16 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 			r.pasteBuf = r.pasteBuf[:0]
 			return Event{Kind: EventPaste, Paste: payload}, i + len(end), true
 		}
+		// Preserve exactly the suffix that could be the start of a closing
+		// delimiter. Read boundaries are not protocol boundaries, so ESC,
+		// ESC[, or any longer prefix of ESC[201~ may arrive alone.
+		keep := suffixPrefixLen(r.scan, end)
+		available := len(r.scan) - keep
+		if available == 0 {
+			return Event{}, 0, false
+		}
 		if r.pasteCapped {
-			// Close sequence not visible yet; keep discarding. Keep
-			// some lookback bytes in case ESC[201~ straddles two
-			// reads — using len(end)-1 ensures we don't drop the
-			// prefix of a split close sequence.
-			keep := len(end) - 1
-			if len(r.scan) <= keep {
-				return Event{}, 0, false
-			}
-			return Event{}, len(r.scan) - keep, true
+			return Event{}, available, true
 		}
 		// Cap accumulation so a runaway or malicious sender can't
 		// allocate unbounded memory between ESC[200~ and ESC[201~.
@@ -145,7 +245,7 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 		// (typically: warn, discard the rest until ESC[201~), then
 		// stay in paste-mode with pasteCapped=true so further bytes
 		// keep getting discarded until the actual close arrives.
-		if len(r.pasteBuf)+len(r.scan) > maxPasteBytes {
+		if len(r.pasteBuf)+available > maxPasteBytes {
 			take := maxPasteBytes - len(r.pasteBuf)
 			if take > 0 {
 				r.pasteBuf = append(r.pasteBuf, r.scan[:take]...)
@@ -159,8 +259,8 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 			}
 			return Event{Kind: EventPaste, Paste: payload, Truncated: true}, consumed, true
 		}
-		r.pasteBuf = append(r.pasteBuf, r.scan...)
-		return Event{}, len(r.scan), true
+		r.pasteBuf = append(r.pasteBuf, r.scan[:available]...)
+		return Event{}, available, true
 	}
 
 	b0 := r.scan[0]
@@ -206,9 +306,11 @@ func (r *reader) parseOne() (ev Event, consumed int, ok bool) {
 
 func (r *reader) parseEscape() (Event, int, bool) {
 	if len(r.scan) == 1 {
-		// Bare ESC. We can't peek into a future timeout from here, so
-		// emit ESC immediately. Apps that care about ESC-vs-Alt-prefix
-		// chord handling should do their own re-coalescing.
+		return Event{}, 0, false
+	}
+	if r.scan[1] == 0x1b {
+		// Repeated Escape is two Escape keypresses, not an Alt-modified
+		// control rune. The second byte is parsed (or timed out) next.
 		return Event{Kind: EventKey, Key: KeyEsc}, 1, true
 	}
 	switch r.scan[1] {
@@ -223,6 +325,9 @@ func (r *reader) parseEscape() (Event, int, bool) {
 		return Event{Kind: EventKey, Rune: rune(c), Mods: ModAlt}, 2, true
 	}
 	// Esc + UTF-8: treat as Alt+rune
+	if !utf8.FullRune(r.scan[1:]) {
+		return Event{}, 0, false
+	}
 	r2, size := utf8.DecodeRune(r.scan[1:])
 	if r2 == utf8.RuneError && size == 1 {
 		return Event{}, 2, true
@@ -231,6 +336,18 @@ func (r *reader) parseEscape() (Event, int, bool) {
 		return Event{}, 0, false
 	}
 	return Event{Kind: EventKey, Rune: r2, Mods: ModAlt}, 1 + size, true
+}
+
+// DecodeInputSequence decodes one complete terminal input sequence. It is a
+// small protocol-level building block for consumers and tests that already
+// have message framing; streaming terminal backends should use Backend, whose
+// reader also performs bounded Escape disambiguation across read boundaries.
+func DecodeInputSequence(input []byte) (Event, int, bool) {
+	if len(input) == 1 && input[0] == 0x1b {
+		return Event{Kind: EventKey, Key: KeyEsc}, 1, true
+	}
+	r := reader{scan: input}
+	return r.parseOne()
 }
 
 // parseCSI parses ESC '[' ... finalByte
@@ -610,4 +727,27 @@ outer:
 		return i
 	}
 	return -1
+}
+
+// suffixPrefixLen returns the longest suffix of data that is also a proper
+// prefix of marker. It is the small streaming equivalent of delimiter
+// lookbehind and prevents split protocol markers from becoming payload.
+func suffixPrefixLen(data, marker []byte) int {
+	max := len(marker) - 1
+	if len(data) < max {
+		max = len(data)
+	}
+	for n := max; n > 0; n-- {
+		match := true
+		for i := 0; i < n; i++ {
+			if data[len(data)-n+i] != marker[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return n
+		}
+	}
+	return 0
 }
