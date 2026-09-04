@@ -30,6 +30,7 @@ type FuzzyFinder struct {
 
 	query   string
 	current int // selected index in matches
+	top     int // first match rendered in the scrollable result viewport
 	matches []match
 	closed  bool
 	chosen  int
@@ -96,15 +97,29 @@ func (f *FuzzyFinder) Run(host *views.Group) int {
 func (f *FuzzyFinder) HandleEvent(ev *drivers.Event) {
 	if ev.What == consts.EvMouseDown {
 		local := f.MakeLocal(ev.Where)
-		if local.Y >= 2 && local.Y-2 < len(f.matches) &&
+		row := f.top + local.Y - 2
+		if local.Y >= 2 && row >= 0 && row < len(f.matches) &&
 			local.X > 0 && local.X < f.Size.X-1 {
-			f.current = local.Y - 2
+			f.current = row
 			f.commit()
 			f.ClearEvent(ev)
 			return
 		}
 		// click outside → cancel
 		f.cancel()
+		f.ClearEvent(ev)
+		return
+	}
+	if ev.What == consts.EvMouseWheel {
+		switch {
+		case ev.Buttons&consts.MbScrollWheelUp != 0:
+			f.moveCurrent(-3)
+		case ev.Buttons&consts.MbScrollWheelDown != 0:
+			f.moveCurrent(3)
+		default:
+			return
+		}
+		f.Draw()
 		f.ClearEvent(ev)
 		return
 	}
@@ -117,13 +132,19 @@ func (f *FuzzyFinder) HandleEvent(ev *drivers.Event) {
 	case consts.KbEnter:
 		f.commit()
 	case consts.KbUp:
-		if f.current > 0 {
-			f.current--
-		}
+		f.moveCurrent(-1)
 	case consts.KbDown:
-		if f.current+1 < len(f.matches) {
-			f.current++
-		}
+		f.moveCurrent(1)
+	case consts.KbPgUp:
+		f.moveCurrent(-f.visibleRows())
+	case consts.KbPgDn:
+		f.moveCurrent(f.visibleRows())
+	case consts.KbHome:
+		f.current = 0
+		f.ensureCurrentVisible()
+	case consts.KbEnd:
+		f.current = len(f.matches) - 1
+		f.ensureCurrentVisible()
 	case consts.KbBack:
 		if len(f.query) > 0 {
 			f.query = f.query[:len(f.query)-1]
@@ -155,6 +176,57 @@ func (f *FuzzyFinder) commit() {
 	f.closed = true
 }
 
+func (f *FuzzyFinder) visibleRows() int {
+	rows := f.Size.Y - 3 // top frame + query row + bottom frame
+	if rows < 0 {
+		return 0
+	}
+	return rows
+}
+
+func (f *FuzzyFinder) moveCurrent(delta int) {
+	if len(f.matches) == 0 {
+		f.current = 0
+		f.top = 0
+		return
+	}
+	f.current += delta
+	if f.current < 0 {
+		f.current = 0
+	}
+	if f.current >= len(f.matches) {
+		f.current = len(f.matches) - 1
+	}
+	f.ensureCurrentVisible()
+}
+
+// ensureCurrentVisible scrolls the result viewport just far enough to keep
+// the selected match on screen. It also clamps stale offsets after filtering
+// shrinks the result set or the picker is resized.
+func (f *FuzzyFinder) ensureCurrentVisible() {
+	rows := f.visibleRows()
+	if len(f.matches) == 0 || rows == 0 {
+		f.top = 0
+		return
+	}
+	if f.current < f.top {
+		f.top = f.current
+	}
+	if f.current >= f.top+rows {
+		f.top = f.current - rows + 1
+	}
+	maxTop := len(f.matches) - rows
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	if f.top > maxTop {
+		f.top = maxTop
+	}
+	if f.top < 0 {
+		f.top = 0
+	}
+}
+
 // recalc re-scores items against query.
 func (f *FuzzyFinder) recalc() {
 	f.matches = f.matches[:0]
@@ -175,6 +247,7 @@ func (f *FuzzyFinder) recalc() {
 	if f.current < 0 {
 		f.current = 0
 	}
+	f.ensureCurrentVisible()
 }
 
 // scoreFuzzy returns (score, hit-positions, matched). All chars of
@@ -240,7 +313,8 @@ func (f *FuzzyFinder) Draw() {
 	for r := 0; r+2 < h-1; r++ {
 		row := screen.MakeDrawBuffer(w)
 		c := f.TextColor
-		if r == f.current {
+		matchRow := f.top + r
+		if matchRow == f.current {
 			c = f.SelColor
 		}
 		screen.DrawCell(row, 0, "│", f.FrameColor)
@@ -248,8 +322,8 @@ func (f *FuzzyFinder) Draw() {
 			screen.DrawCell(row, i, " ", c)
 		}
 		screen.DrawCell(row, w-1, "│", f.FrameColor)
-		if r < len(f.matches) {
-			m := f.matches[r]
+		if matchRow < len(f.matches) {
+			m := f.matches[matchRow]
 			text := f.Items[m.idx]
 			screen.DrawStr(row, 2, text, c)
 			// Highlight matched chars.
