@@ -74,7 +74,10 @@ func buildDialog(title, msg string, buttons int) *dialogs.Dialog {
 
 func addButtons(d *dialogs.Dialog, w, h, buttons int) {
 	bw := 10
-	by := h - 2
+	// Buttons paint their drop shadow one row below their logical bounds.
+	// Keep that shadow on h-2 so h-1 remains available for the dialog's
+	// bottom border.
+	by := h - 3
 	switch buttons {
 	case YesNo:
 		d.Insert(dialogs.NewButton(geom.NewRect(w/2-bw-1, by, w/2-1, by+1), "~Y~es", consts.CmYes, dialogs.BfDefault))

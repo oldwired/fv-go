@@ -81,8 +81,7 @@ func (b *Button) GetTypeID() string { return "button" }
 // layout convention note on NewButton.
 func (b *Button) Draw() {
 	pal := theme.Get()
-	// TV cButton palette: black-on-green normal, bright-white when
-	// focused or default, white-on-blue while pressed.
+	// Resolve the palette roles for the button's current state.
 	normal := pal.ButtonNormal
 	hot := pal.ButtonNormalHot
 	if b.AmDefault || b.GetState(consts.SfDefault) {
